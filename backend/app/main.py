@@ -11,6 +11,7 @@ from app.routes.admin_routes import router as admin_router
 from app.routes.notification_routes import router as notification_router
 
 from app.database import engine, Base
+from app.models.panel_group import PanelGroup
 
 Base.metadata.create_all(bind=engine)
 
@@ -68,13 +69,44 @@ with engine.begin() as connection:
         if "panel_id" not in existing_cand_columns:
             connection.execute(
                 text(
-                    "ALTER TABLE candidates ADD COLUMN panel_id VARCHAR(100) NULL"
+                    "ALTER TABLE candidates ADD COLUMN panel_id VARCHAR(500) NULL"
                 )
             )
+        else:
+            try:
+                connection.execute(
+                    text(
+                        "ALTER TABLE candidates MODIFY COLUMN panel_id VARCHAR(500) NULL"
+                    )
+                )
+            except Exception as modify_err:
+                print(f"Failed to modify candidates.panel_id type: {modify_err}")
         if "panel_group_id" not in existing_cand_columns:
             connection.execute(
                 text(
                     "ALTER TABLE candidates ADD COLUMN panel_group_id VARCHAR(100) NULL"
+                )
+            )
+
+        # panels table columns check
+        result_panels = connection.execute(
+            text(
+                "SELECT COLUMN_NAME FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = 'panels'"
+            ),
+            {"schema": db_name}
+        )
+        existing_panels_columns = {row[0] for row in result_panels}
+        if "user_id" not in existing_panels_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE panels ADD COLUMN user_id INT NULL"
+                )
+            )
+        if "panel_group_id" not in existing_panels_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE panels ADD COLUMN panel_group_id INT NULL"
                 )
             )
 
@@ -90,7 +122,38 @@ with engine.begin() as connection:
         if "panel_id" not in existing_sched_columns:
             connection.execute(
                 text(
-                    "ALTER TABLE interview_schedule ADD COLUMN panel_id INT NULL"
+                    "ALTER TABLE interview_schedule ADD COLUMN panel_id VARCHAR(500) NULL"
+                )
+            )
+        else:
+            try:
+                # Attempt to drop constraint if it exists to allow altering the type
+                try:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE interview_schedule DROP FOREIGN KEY interview_schedule_ibfk_3"
+                        )
+                    )
+                except Exception:
+                    pass
+                
+                connection.execute(
+                    text(
+                        "ALTER TABLE interview_schedule MODIFY COLUMN panel_id VARCHAR(500) NULL"
+                    )
+                )
+            except Exception as modify_err:
+                print(f"Failed to modify interview_schedule.panel_id type: {modify_err}")
+        if "interview_mode" not in existing_sched_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE interview_schedule ADD COLUMN interview_mode VARCHAR(50) NOT NULL DEFAULT 'online'"
+                )
+            )
+        if "interview_level" not in existing_sched_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE interview_schedule ADD COLUMN interview_level VARCHAR(100) NULL"
                 )
             )
 

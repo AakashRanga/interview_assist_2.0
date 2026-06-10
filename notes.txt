@@ -1,3 +1,11 @@
-what happens when i click approve in actions how it is called gmeet and scheduled and send email am i using celery worker to list task to generate gmeet, email, allot panel everything give me the work and api used.
-
 the flow is changed only generating gmeet link from n8n storing in db and sending email to candidate and allotted pannels must be automated, Starting with candidate status has applied -> admin will download the total candidate list and insert again a csv or excel file where all the candidate with selected list will be uploaded now status will be changed from applied to upload remember this should affect only applied candidate status not candidate who are already selected and waiting for interview scheduled, next admin will allot time and date in that excel itself or manually keep that option in actions for manual bulk upload next to selected count  after that need to select panel for each candidate at that time only celery task should be activated and gmeet link and email should start remember this should not create dummy gmeet link even if server is off or some problem happen celery must restart the task again when server is on. add this part is to assign online or offline for candidate individually based on admin choice add this options, some job role has multiple level for that next level of interview must be scheduled based on previous level they have completed no assigning automated panels manually admin will allot time date and panel for all this keep options has functional and easy to use application while assigning panel or schedule interview or upload selected candidate this tool must be easy to use and visible to access every task they do. start with todo list and complete the entire flow one by one with advance level backend handling and frontend high level speed 
+
+
+why status has uploaded only i need these status that should be reflected in all tables where candidate status is available 
+1. applied
+2. selected
+3. scheduled
+4. completed
+5. rejected
+
+change it properly.

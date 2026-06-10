@@ -13,7 +13,7 @@ class Candidate(Base):
     email = Column(String(255), nullable=False)
     phone = Column(String(50), nullable=True)
     location = Column(String(255), nullable=True)
-    status = Column(String(100), nullable=False, default="new")
+    status = Column(String(100), nullable=False, default="Applied")
     resume_path = Column(String(500), nullable=True)
     skills = Column(String(1000), nullable=True)
     certificates = Column(String(1000), nullable=True)

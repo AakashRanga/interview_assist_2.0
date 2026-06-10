@@ -298,7 +298,7 @@ export function AdminDashboard() {
                       'success' :
                       candidate.status === 'Rejected' ?
                       'danger' :
-                      candidate.status === 'Interviewed' ?
+                      candidate.status === 'Completed' ?
                       'info' :
                       candidate.status === 'Scheduled' ?
                       'primary' :
@@ -705,7 +705,7 @@ export function AdminDashboard() {
                   'success' :
                   c.status === 'Rejected' ?
                   'danger' :
-                  c.status === 'Interviewed' ?
+                  c.status === 'Completed' ?
                   'info' :
                   c.status === 'Scheduled' ?
                   'primary' :

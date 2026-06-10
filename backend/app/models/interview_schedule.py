@@ -17,6 +17,8 @@ class InterviewSchedule(Base):
     interview_status = Column(String(100), nullable=False, default="scheduled")
     # Stores JSON array of panel IDs e.g. "[1,2,3,4,5]" for parallel panels
     panel_id = Column(String(500), nullable=True, index=True)
+    interview_mode = Column(String(50), nullable=False, default="online")
+    interview_level = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

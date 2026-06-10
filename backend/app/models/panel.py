@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
 
@@ -7,6 +8,8 @@ class Panel(Base):
     __tablename__ = "panels"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    panel_group_id = Column(Integer, ForeignKey("panel_groups.id", ondelete="SET NULL"), nullable=True)
     mr_panelist_grade = Column(String(100), nullable=True)
     mr_panel_mobile = Column(String(50), nullable=True)
     hr_panelist_emp_id = Column(String(100), nullable=True)
@@ -19,3 +22,8 @@ class Panel(Base):
     interview_type = Column(String(100), nullable=True)
     panel_briefing = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User")
+    panel_group = relationship("PanelGroup", back_populates="panels")
+
+

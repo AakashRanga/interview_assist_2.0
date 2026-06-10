@@ -4,13 +4,7 @@ export interface Candidate {
   email: string;
   phone: string;
   role: string;
-  status:
-  'Applied' |
-  'Scheduled' |
-  'Interviewed' |
-  'Selected' |
-  'Rejected' |
-  'On Hold';
+  status: 'Applied' | 'Selected' | 'Scheduled' | 'Completed' | 'Rejected';
   interviewDate?: string;
   interviewTime?: string;
   mode: 'Online' | 'Offline';
@@ -105,12 +99,22 @@ export const mockPanelGroups: PanelGroup[] = [
 {
   id: 'group-1',
   name: 'Panel A',
-  description: 'Primary interview panel for engineering roles'
+  description: 'Panel A'
 },
 {
   id: 'group-2',
   name: 'Panel B',
-  description: 'Secondary interview panel for product roles'
+  description: 'Panel B'
+},
+{
+  id: 'group-3',
+  name: 'Panel C',
+  description: 'Panel C'
+},
+{
+  id: 'group-4',
+  name: 'Panel D',
+  description: 'Panel D'
 }];
 
 
@@ -246,10 +250,9 @@ export const mockCandidates: Candidate[] = Array.from(
     const statuses: Candidate['status'][] = [
     'Applied',
     'Scheduled',
-    'Interviewed',
+    'Completed',
     'Selected',
-    'Rejected',
-    'On Hold'];
+    'Rejected'];
 
     const roles = [
     'Frontend Developer',
@@ -298,7 +301,7 @@ export const mockCandidates: Candidate[] = Array.from(
 );
 
 export const mockInterviews: Interview[] = mockCandidates.
-filter((c) => c.status === 'Scheduled' || c.status === 'Interviewed').
+filter((c) => c.status === 'Scheduled' || c.status === 'Completed').
 map((c) => ({
   id: `interview-${c.id}`,
   candidateId: c.id,
@@ -306,7 +309,7 @@ map((c) => ({
   date: c.interviewDate!,
   time: c.interviewTime!,
   mode: c.mode,
-  status: c.status === 'Interviewed' ? 'Completed' : 'Scheduled',
+  status: c.status === 'Completed' ? 'Completed' : 'Scheduled',
   meetLink: c.meetLink,
   venue: c.venue
 }));
@@ -433,7 +436,7 @@ export const panelNotifications: Notification[] = [
 export const pipelineData = [
 { stage: 'Applied', count: 60 },
 { stage: 'Screened', count: 45 },
-{ stage: 'Interviewed', count: 28 },
+{ stage: 'Completed', count: 28 },
 { stage: 'Offered', count: 16 },
 { stage: 'Hired', count: 10 }];
 
@@ -455,9 +458,9 @@ export const interviewsOverTime = [
 
 export const statusBreakdown = [
 { name: 'Scheduled', value: 12, color: '#7C3AED' },
-{ name: 'Interviewed', value: 8, color: '#06B6D4' },
+{ name: 'Completed', value: 8, color: '#06B6D4' },
 { name: 'Selected', value: 6, color: '#10B981' },
-{ name: 'On Hold', value: 4, color: '#F59E0B' },
+{ name: 'Applied', value: 14, color: '#F59E0B' },
 { name: 'Rejected', value: 5, color: '#EF4444' }];
 
 

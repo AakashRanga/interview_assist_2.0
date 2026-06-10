@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -22,7 +22,9 @@ import {
   ClockIcon,
   XCircleIcon,
   MoreVerticalIcon,
-  DownloadIcon } from
+  DownloadIcon,
+  UploadIcon,
+  CalendarIcon } from
 'lucide-react';
 
 export function AdminCandidates() {
@@ -44,7 +46,20 @@ export function AdminCandidates() {
   const [newDate, setNewDate] = useState('');
   const [newTime, setNewTime] = useState('');
   const [selectedPanelGroupId, setSelectedPanelGroupId] = useState('');
-  const [selectedPanelId, setSelectedPanelId] = useState('');
+  const [selectedPanelIds, setSelectedPanelIds] = useState<string[]>([]);
+
+  // Bulk Upload & Manual Allotment states
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [scheduleManualOpen, setScheduleManualOpen] = useState(false);
+  const [schedDate, setSchedDate] = useState('');
+  const [schedStartTime, setSchedStartTime] = useState('');
+  const [schedEndTime, setSchedEndTime] = useState('');
+  const [schedMode, setSchedMode] = useState('Online');
+  const [schedLevel, setSchedLevel] = useState('Level 1');
+  const [completedLevels, setCompletedLevels] = useState<string[]>([]);
+  const [busyPanelIds, setBusyPanelIds] = useState<string[]>([]);
+  const [dbPanels, setDbPanels] = useState<any[]>([]);
+  const [dbPanelGroups, setDbPanelGroups] = useState<any[]>([]);
 
   const fetchCandidates = async () => {
     try {
@@ -59,8 +74,34 @@ export function AdminCandidates() {
     }
   };
 
+  const fetchDbPanels = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/panels`);
+      if (res.ok) {
+        const data = await res.json();
+        setDbPanels(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch panels', err);
+    }
+  };
+
+  const fetchDbPanelGroups = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/panel-groups`);
+      if (res.ok) {
+        const data = await res.json();
+        setDbPanelGroups(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch panel groups', err);
+    }
+  };
+
   useEffect(() => {
     fetchCandidates();
+    fetchDbPanels();
+    fetchDbPanelGroups();
   }, []);
 
   useEffect(() => {
@@ -96,12 +137,72 @@ export function AdminCandidates() {
       setRescheduleOpen(true);
     }
     if (action === 'reassign') {
-      setSelectedPanelGroupId(candidate.panelGroupId || mockPanelGroups[0]?.id || '');
-      setSelectedPanelId(candidate.panelId || mockPanels[0]?.id || '');
+      const initialGroupId = candidate.panelGroupId || String(dbPanelGroups[0]?.id || '');
+      setSelectedPanelGroupId(initialGroupId);
+      
+      let initialIds: string[] = [];
+      if (candidate.panelId) {
+        if (candidate.panelId.startsWith('[')) {
+          try {
+            initialIds = JSON.parse(candidate.panelId).map(String);
+          } catch (e) {
+            initialIds = candidate.panelId.split(',').map(s => s.trim());
+          }
+        } else {
+          initialIds = candidate.panelId.split(',').map(s => s.trim());
+        }
+      }
+      setSelectedPanelIds(initialIds);
+      setBusyPanelIds([]);
+      
+      if (candidate.interviewDate && candidate.interviewTime) {
+        const timeParts = candidate.interviewTime.split(' - ');
+        const startTimeStr = timeParts[0];
+        const endTimeStr = timeParts[1] || timeParts[0];
+        const dateStr = candidate.interviewDate.split('T')[0];
+        
+        const params = new URLSearchParams({
+          date_str: dateStr,
+          start_time_str: startTimeStr,
+          end_time_str: endTimeStr
+        });
+        
+        fetch(`${API_BASE_URL}/admin/panels/busy?${params.toString()}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.busy_panel_ids) {
+              setBusyPanelIds(data.busy_panel_ids.map((id: any) => String(id)));
+            }
+          })
+          .catch(err => console.error("Error fetching busy panels", err));
+      }
       setReassignOpen(true);
     }
     if (action === 'feedback') {
       setFeedbackViewOpen(true);
+    }
+    if (action === 'schedule') {
+      setSchedDate(candidate.interviewDate ? candidate.interviewDate.split('T')[0] : '');
+      setSchedStartTime('');
+      setSchedEndTime('');
+      setSchedMode(candidate.mode || 'Online');
+      
+      // Fetch level info
+      fetch(`${API_BASE_URL}/admin/candidates/${candidate.id}/next-level-info`)
+        .then((res) => {
+          if (res.ok) return res.json();
+          throw new Error();
+        })
+        .then((data) => {
+          setSchedLevel(data.next_level || 'Level 1');
+          setCompletedLevels(data.completed_levels || []);
+          setScheduleManualOpen(true);
+        })
+        .catch(() => {
+          setSchedLevel('Level 1');
+          setCompletedLevels([]);
+          setScheduleManualOpen(true);
+        });
     }
   };
 
@@ -133,8 +234,8 @@ export function AdminCandidates() {
 
   const handleConfirmReassign = async () => {
     if (!selectedCandidate) return;
-    if (!selectedPanelGroupId || !selectedPanelId) {
-      toast.error('Please select both Panel and Category');
+    if (selectedPanelIds.length === 0) {
+      toast.error('Please select at least one Panelist');
       return;
     }
     try {
@@ -144,19 +245,86 @@ export function AdminCandidates() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          panel_group_id: selectedPanelGroupId,
-          panel_id: selectedPanelId,
+          panel_group_id: selectedPanelGroupId || 'group-1',
+          panel_id: JSON.stringify(selectedPanelIds),
         }),
       });
       if (!res.ok) {
         const errData = await res.json();
-        throw new Error(errData.detail || 'Failed to reassign panel');
+        throw new Error(errData.detail || 'Failed to assign panel');
       }
-      toast.success('Panel reassigned successfully');
+      toast.success('Panel assigned successfully');
       setReassignOpen(false);
       fetchCandidates();
     } catch (err: any) {
-      toast.error(err.message || 'Error reassigning panel');
+      toast.error(err.message || 'Error assigning panel');
+    }
+  };
+
+  const handleConfirmScheduleManual = async () => {
+    if (!selectedCandidate) return;
+    if (!schedDate || !schedStartTime || !schedEndTime) {
+      toast.error('Please select date, start time, and end time');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/candidates/${selectedCandidate.id}/schedule-manual`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          date: schedDate,
+          start_time: schedStartTime,
+          end_time: schedEndTime,
+          interview_mode: schedMode,
+          interview_level: schedLevel
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Failed to schedule');
+      }
+      toast.success('Interview slot scheduled successfully. Now you can assign a panel to activate the schedule.');
+      setScheduleManualOpen(false);
+      fetchCandidates();
+    } catch (err: any) {
+      toast.error(err.message || 'Error scheduling interview');
+    }
+  };
+
+  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const toastId = toast.loading('Uploading candidates selection list...');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/candidates/import-selected`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Failed to upload selected candidates');
+      }
+      
+      const data = await res.json();
+      toast.dismiss(toastId);
+      if (data.status === 'success') {
+        toast.success(data.message || `Successfully uploaded selected candidates.`);
+      } else {
+        toast.warning(`Partial success: ${data.message}`);
+      }
+      fetchCandidates();
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err.message || 'Error uploading candidate list');
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -235,17 +403,18 @@ export function AdminCandidates() {
   const statuses = [
     'all',
     'Applied',
-    'Scheduled',
-    'Interviewed',
     'Selected',
-    'Rejected',
-    'On Hold'
+    'Scheduled',
+    'Completed',
+    'Rejected'
   ];
 
   const counts = {
     total: candidates.length,
-    scheduled: candidates.filter((c) => c.status === 'Scheduled').length,
+    applied: candidates.filter((c) => c.status === 'Applied').length,
     selected: candidates.filter((c) => c.status === 'Selected').length,
+    scheduled: candidates.filter((c) => c.status === 'Scheduled').length,
+    completed: candidates.filter((c) => c.status === 'Completed').length,
     rejected: candidates.filter((c) => c.status === 'Rejected').length
   };
 
@@ -271,7 +440,7 @@ export function AdminCandidates() {
       </motion.div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {[
         {
           label: 'Total',
@@ -280,16 +449,22 @@ export function AdminCandidates() {
           color: 'primary'
         },
         {
+          label: 'Selected',
+          value: counts.selected,
+          icon: CheckCircleIcon,
+          color: 'green'
+        },
+        {
           label: 'Scheduled',
           value: counts.scheduled,
           icon: ClockIcon,
           color: 'cyan'
         },
         {
-          label: 'Selected',
-          value: counts.selected,
+          label: 'Completed',
+          value: counts.completed,
           icon: CheckCircleIcon,
-          color: 'green'
+          color: 'indigo'
         },
         {
           label: 'Rejected',
@@ -301,8 +476,9 @@ export function AdminCandidates() {
           const Icon = s.icon;
           const colorMap: Record<string, string> = {
             primary: 'bg-primary/10 text-primary border-primary/20',
-            cyan: 'bg-cyan/10 text-cyan border-cyan/20',
             green: 'bg-green-500/10 text-green-600 border-green-500/20',
+            cyan: 'bg-cyan/10 text-cyan border-cyan/20',
+            indigo: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20',
             red: 'bg-red-500/10 text-red-600 border-red-500/20'
           };
           return (
@@ -384,8 +560,8 @@ export function AdminCandidates() {
               className="px-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50">
               
               <option value="all">All Panels</option>
-              {mockPanelGroups.map((g) =>
-              <option key={g.id} value={g.id}>
+              {dbPanelGroups.map((g) =>
+              <option key={g.id} value={String(g.id)}>
                   {g.name}
                 </option>
               )}
@@ -398,6 +574,21 @@ export function AdminCandidates() {
               <DownloadIcon className="w-3.5 h-3.5" />
               Download Excel
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 bg-white/70 border border-white/60 text-xs text-secondary hover:bg-white/95 rounded-xl px-4 py-2"
+            >
+              <UploadIcon className="w-3.5 h-3.5" />
+              Upload Selected List
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleBulkUpload}
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+            />
           </div>
         </GlassCard>
       </motion.div>
@@ -458,9 +649,8 @@ export function AdminCandidates() {
                   </tr>
                 ) : (
                   filtered.map((c, i) => {
-                    const category = mockPanels.find((p) => p.id === c.panelId);
-                    const group = mockPanelGroups.find(
-                      (g) => g.id === c.panelGroupId
+                    const group = dbPanelGroups.find(
+                      (g) => String(g.id) === String(c.panelGroupId)
                     );
                     return (
                       <motion.tr
@@ -498,10 +688,33 @@ export function AdminCandidates() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs text-secondary">
-                            {group?.name}
+                            {group?.name || '—'}
                           </div>
                           <div className="text-[10px] text-secondary/60">
-                            {category?.name}
+                            {(() => {
+                              if (!c.panelId) return '—';
+                              let parsedIds: string[] = [];
+                              if (c.panelId.startsWith('[')) {
+                                try {
+                                  parsedIds = JSON.parse(c.panelId).map(String);
+                                } catch (e) {
+                                  parsedIds = c.panelId.split(',').map(s => s.trim());
+                                }
+                              } else {
+                                parsedIds = c.panelId.split(',').map(s => s.trim());
+                              }
+                              
+                              const names = parsedIds.map(pid => {
+                                const dbPanel = dbPanels.find(p => String(p.id) === String(pid));
+                                if (dbPanel) return `${dbPanel.name} (ID: ${dbPanel.id})`;
+                                return pid;
+                              });
+                              
+                              if (names.length > 0) {
+                                return names.join(', ');
+                              }
+                              return c.panelId;
+                            })()}
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -519,7 +732,7 @@ export function AdminCandidates() {
                             'success' :
                             c.status === 'Rejected' ?
                             'danger' :
-                            c.status === 'Interviewed' ?
+                            c.status === 'Completed' ?
                             'info' :
                             c.status === 'Scheduled' ?
                             'primary' :
@@ -600,66 +813,175 @@ export function AdminCandidates() {
         </div>
       </Modal>
 
-      {/* Reassign modal */}
+      {/* Assign Panel modal */}
       <Modal
         isOpen={reassignOpen}
         onClose={() => setReassignOpen(false)}
-        title={`Reassign ${selectedCandidate?.name ?? ''}`}
+        title={`Assign Panel to ${selectedCandidate?.name ?? ''}`}
         size="md">
         
         <div className="space-y-4">
           <div>
             <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
-              Panel
+              Select Panel Group
             </label>
             <select 
               value={selectedPanelGroupId}
               onChange={(e) => {
-                const groupId = e.target.value;
-                setSelectedPanelGroupId(groupId);
-                const firstCat = mockPanels.find(p => p.panelGroupId === groupId);
-                setSelectedPanelId(firstCat ? firstCat.id : '');
+                setSelectedPanelGroupId(e.target.value);
+                setSelectedPanelIds([]);
               }}
               className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50"
             >
-              {mockPanelGroups.map((g) =>
-                <option key={g.id} value={g.id}>
+              <option value="">Select Group...</option>
+              {dbPanelGroups.map((g) =>
+                <option key={g.id} value={String(g.id)}>
                   {g.name}
                 </option>
               )}
             </select>
           </div>
+ 
           <div>
             <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
-              Category
+              Select Panelist Category (Name, ID & Availability)
             </label>
-            <select 
-              value={selectedPanelId}
-              onChange={(e) => setSelectedPanelId(e.target.value)}
-              className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              {mockPanels
-                .filter((p) => p.panelGroupId === selectedPanelGroupId)
-                .map((p) =>
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                )
-              }
-            </select>
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1 border border-white/40 rounded-2xl p-2 bg-white/30">
+              {dbPanels
+                .filter((p) => {
+                  if (!selectedPanelGroupId) return true;
+                  return String(p.panel_group_id) === String(selectedPanelGroupId);
+                })
+                .map((p) => {
+                  const isBusy = busyPanelIds.includes(String(p.id));
+                  const isSelected = selectedPanelIds.includes(String(p.id));
+                  return (
+                    <div 
+                      key={p.id}
+                      onClick={() => {
+                        const pid = String(p.id);
+                        setSelectedPanelIds(prev => 
+                          prev.includes(pid)
+                            ? prev.filter(id => id !== pid)
+                            : [...prev, pid]
+                        );
+                      }}
+                      className={`flex items-center justify-between p-3 rounded-xl cursor-pointer border transition-all ${
+                        isSelected 
+                          ? 'bg-primary/20 border-primary/60 shadow-glass' 
+                          : 'bg-white/50 border-white/60 hover:bg-white/80'
+                      }`}
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-xs font-semibold text-secondary">
+                          {p.name}
+                        </span>
+                        <span className="text-[10px] text-secondary/60">
+                          ID: {p.id} • {p.interview_type || 'General'}
+                        </span>
+                      </div>
+                      <Badge 
+                        variant={isBusy ? 'danger' : 'success'}
+                        size="sm"
+                      >
+                        {isBusy ? 'Busy' : 'Available'}
+                      </Badge>
+                    </div>
+                  );
+                })}
+              {dbPanels.length === 0 && (
+                <p className="text-xs text-secondary/50 text-center py-4">No panels found. Please import panels first.</p>
+              )}
+            </div>
           </div>
+
           <div className="flex space-x-3">
             <Button
               className="flex-grow"
               onClick={handleConfirmReassign}>
               
-              Reassign
+              Assign Panel
             </Button>
             <Button
               variant="outline"
               className="flex-grow"
               onClick={() => setReassignOpen(false)}>
               
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Manual Schedule modal */}
+      <Modal
+        isOpen={scheduleManualOpen}
+        onClose={() => setScheduleManualOpen(false)}
+        title={`Schedule Interview Slot - ${selectedCandidate?.name ?? ''}`}
+        size="md">
+        
+        <div className="space-y-4">
+          <div className="p-3 bg-primary/5 rounded-xl border border-primary/10">
+            <p className="text-[10px] text-primary font-semibold uppercase tracking-wider mb-1">Detected Interview Level</p>
+            <p className="text-xs text-secondary font-medium">Next: {schedLevel}</p>
+            {completedLevels.length > 0 && (
+              <p className="text-[9px] text-secondary/50 mt-1">Completed rounds: {completedLevels.join(', ')}</p>
+            )}
+          </div>
+          
+          <Input 
+            type="date" 
+            label="Date" 
+            value={schedDate}
+            onChange={(e) => setSchedDate(e.target.value)}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input 
+              type="time" 
+              label="Start Time" 
+              value={schedStartTime}
+              onChange={(e) => setSchedStartTime(e.target.value)}
+            />
+            <Input 
+              type="time" 
+              label="End Time" 
+              value={schedEndTime}
+              onChange={(e) => setSchedEndTime(e.target.value)}
+            />
+          </div>
+          
+          <div>
+            <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
+              Interview Mode
+            </label>
+            <div className="flex space-x-3">
+              {['Online', 'Offline'].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setSchedMode(m)}
+                  className={`flex-grow py-2 text-xs font-semibold rounded-xl border transition-all ${
+                    schedMode === m 
+                      ? 'bg-primary border-primary text-white shadow-md shadow-primary/20' 
+                      : 'bg-white border-white/60 text-secondary hover:bg-slate-50'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div className="flex space-x-3 mt-6">
+            <Button
+              className="flex-grow"
+              onClick={handleConfirmScheduleManual}>
+              Save Slot
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-grow"
+              onClick={() => setScheduleManualOpen(false)}>
               Cancel
             </Button>
           </div>
@@ -682,16 +1004,34 @@ export function AdminCandidates() {
           }}
           className="candidate-menu-container w-44 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
         >
-          <button
-            onClick={() => handleAction('reschedule', selectedCandidate)}
-            className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
-            Reschedule
-          </button>
-          <button
-            onClick={() => handleAction('reassign', selectedCandidate)}
-            className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
-            Reassign Panel
-          </button>
+          {selectedCandidate.status === 'Selected' && (
+            <button
+              onClick={() => handleAction('schedule', selectedCandidate)}
+              className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100 font-semibold text-primary">
+              Schedule Date & Time
+            </button>
+          )}
+          {selectedCandidate.status === 'Selected' && selectedCandidate.interviewDate && (
+            <button
+              onClick={() => handleAction('reassign', selectedCandidate)}
+              className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
+              Assign Panel
+            </button>
+          )}
+          {selectedCandidate.status !== 'Selected' && (
+            <>
+              <button
+                onClick={() => handleAction('reschedule', selectedCandidate)}
+                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
+                Reschedule
+              </button>
+              <button
+                onClick={() => handleAction('reassign', selectedCandidate)}
+                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
+                Reassign Panel
+              </button>
+            </>
+          )}
           <button
             onClick={() => handleAction('feedback', selectedCandidate)}
             className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium">

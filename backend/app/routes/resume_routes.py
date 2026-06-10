@@ -176,7 +176,7 @@ async def upload_candidate_document(
                 user_id=user.id,
                 full_name=user.full_name,
                 email=user.email,
-                status="new"
+                status="Applied"
             )
             db.add(candidate)
             db.commit()
@@ -256,7 +256,7 @@ async def add_user(data: CandidateRequest):
             full_name=data.name,
             email=data.email,
             phone=data.phone,
-            status="new"
+            status="Applied"
         )
 
         db.add(candidate)
@@ -382,7 +382,7 @@ def get_candidate_profile_by_user(user_id: int):
                 user_id=user.id,
                 full_name=user.full_name,
                 email=user.email,
-                status="new"
+                status="Applied"
             )
             db.add(candidate)
             db.commit()
@@ -476,7 +476,7 @@ def update_candidate_profile(user_id: int, data: CandidateProfileUpdateRequest):
                 user_id=user.id,
                 full_name=user.full_name,
                 email=user.email,
-                status="new"
+                status="Applied"
             )
             db.add(candidate)
             db.commit()

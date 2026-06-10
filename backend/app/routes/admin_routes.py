@@ -13,6 +13,7 @@ from app.models.candidate_application import CandidateApplication
 from app.models.interview_schedule import InterviewSchedule
 from app.models.job_role import JobRole
 from app.models.panel import Panel
+from app.models.panel_group import PanelGroup
 from app.services.notification_service import NotificationService
 from app.models.notification import ActivityType, NotificationType
 from app.workers.tasks import schedule_interview_task
@@ -82,6 +83,15 @@ def add_panel(data: AddPanelRequest, admin_email: str = Header(None)):
             role="panel"
         )
         db.add(panel_user)
+        db.flush()
+
+        # Create corresponding Panel record
+        panel = Panel(
+            user_id=panel_user.id,
+            hr_panelists_name=panel_user.full_name,
+            interview_type="HR/Technical"
+        )
+        db.add(panel)
         db.commit()
         db.refresh(panel_user)
 
@@ -262,6 +272,36 @@ def schedule_interview(data: ScheduleInterviewRequest):
         db.commit()
         db.refresh(schedule)
 
+        # Reuse existing gmeet_link if any
+        prior_schedule = db.query(InterviewSchedule).filter(
+            InterviewSchedule.candidate_id == data.candidate_id,
+            InterviewSchedule.gmeet_link.isnot(None),
+            InterviewSchedule.gmeet_link != ""
+        ).order_by(InterviewSchedule.created_at.desc()).first()
+        if prior_schedule:
+            schedule.gmeet_link = prior_schedule.gmeet_link
+            db.add(schedule)
+            db.commit()
+            db.refresh(schedule)
+            
+            # Update PanelGroup's meet_link dynamically based on candidate's interview slot
+            if candidate.panel_group_id:
+                from app.models.panel_group import PanelGroup
+                try:
+                    group_id = int(candidate.panel_group_id)
+                    group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
+                    if group:
+                        group.meet_link = prior_schedule.gmeet_link
+                        db.add(group)
+                        db.commit()
+                except ValueError:
+                    group = db.query(PanelGroup).filter(PanelGroup.name == candidate.panel_group_id).first()
+                    if group:
+                        group.meet_link = prior_schedule.gmeet_link
+                        db.add(group)
+                        db.commit()
+
+
         # Update candidate application status to "Scheduled"
         if not application and job_id:
             application = db.query(CandidateApplication).filter(
@@ -412,6 +452,7 @@ def get_admin_candidates():
             meet_link = None
             schedule_panel_ids = []
 
+            mode_val = job_type
             if schedule:
                 interview_date = schedule.date.isoformat() if schedule.date else None
                 if schedule.start_time and schedule.end_time:
@@ -421,6 +462,8 @@ def get_admin_candidates():
                 elif schedule.start_time:
                     interview_time = schedule.start_time.strftime("%I:%M %p")
                 meet_link = schedule.gmeet_link
+                if schedule.interview_mode:
+                    mode_val = schedule.interview_mode.capitalize()
                 # Parse panel_ids from JSON string (e.g., "[1,2,3,4,5]")
                 if schedule.panel_id:
                     try:
@@ -477,7 +520,7 @@ def get_admin_candidates():
                     status=app_status,
                     interviewDate=interview_date,
                     interviewTime=interview_time,
-                    mode=job_type,
+                    mode=mode_val,
                     panelId=c.panel_id or "",
                     panelGroupId=c.panel_group_id or "",
                     panelIds=schedule_panel_ids,
@@ -551,10 +594,31 @@ def export_candidates_excel(
         ws.title = "Candidates"
         
         # Headers
-        headers = ["Candidate ID", "Name", "Email", "Mobile", "Role ID", "Role Name", "Status"]
+        headers = [
+            "Candidate ID", "Name", "Email", "Mobile", "Role ID", "Role Name", "Status",
+            "Interview Date (YYYY-MM-DD)", "Start Time (HH:MM)", "End Time (HH:MM)", "Interview Mode (Online/Offline)"
+        ]
         ws.append(headers)
         
         for fc in filtered_candidates:
+            # Check if this candidate already has a schedule for the role
+            sched_date = ""
+            sched_start = ""
+            sched_end = ""
+            sched_mode = ""
+            
+            if fc["role_id"]:
+                sched_obj = db.query(InterviewSchedule).filter(
+                    InterviewSchedule.candidate_id == fc["id"],
+                    InterviewSchedule.job_id == fc["role_id"],
+                    InterviewSchedule.interview_status != "cancelled"
+                ).order_by(InterviewSchedule.created_at.desc()).first()
+                if sched_obj:
+                    sched_date = sched_obj.date.isoformat() if sched_obj.date else ""
+                    sched_start = sched_obj.start_time.strftime("%H:%M") if sched_obj.start_time else ""
+                    sched_end = sched_obj.end_time.strftime("%H:%M") if sched_obj.end_time else ""
+                    sched_mode = sched_obj.interview_mode or "online"
+            
             ws.append([
                 fc["id"],
                 fc["name"],
@@ -562,14 +626,18 @@ def export_candidates_excel(
                 fc["mobile"],
                 fc["role_id"],
                 fc["role_name"],
-                fc["status"]
+                fc["status"],
+                sched_date,
+                sched_start,
+                sched_end,
+                sched_mode
             ])
             
         # Style headers
         from openpyxl.styles import Font, PatternFill, Alignment
         header_font = Font(bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-        for col_idx in range(1, 8):
+        for col_idx in range(1, 12):
             cell = ws.cell(row=1, column=col_idx)
             cell.font = header_font
             cell.fill = header_fill
@@ -641,114 +709,6 @@ def update_candidate_status(candidate_id: int, data: UpdateCandidateStatusReques
             except Exception as notif_error:
                 print(f"Failed to create notification: {notif_error}")
         
-        if data.status == "Selected":
-            # Check if already scheduled to prevent duplicates
-            existing_schedules = db.query(InterviewSchedule).filter(
-                InterviewSchedule.candidate_id == candidate_id,
-                InterviewSchedule.interview_status != "cancelled"
-            ).first()
-            if existing_schedules:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Candidate has already been scheduled for interviews."
-                )
-
-            # Find next free date D starting today/tomorrow
-            IST = ZoneInfo('Asia/Kolkata')
-            now_ist = datetime.now(IST)
-            limit_time = time(10, 30)
-            if now_ist.time() > limit_time:
-                target_date = now_ist.date() + timedelta(days=1)
-            else:
-                target_date = now_ist.date()
-
-            start_t = time(11, 0)
-            end_t = time(12, 0)
-
-            while True:
-                conflict = db.query(InterviewSchedule).filter(
-                    InterviewSchedule.candidate_id == candidate_id,
-                    InterviewSchedule.date == target_date,
-                    InterviewSchedule.interview_status != "cancelled",
-                    InterviewSchedule.start_time < end_t,
-                    InterviewSchedule.end_time > start_t
-                ).first()
-                if not conflict:
-                    break
-                target_date += timedelta(days=1)
-
-            # Fetch the 5 panels
-            panels = db.query(Panel).filter(
-                Panel.interview_type.in_(["HR", "Technical", "P1", "P2", "P3"])
-            ).all()
-
-            panel_by_type = {}
-            for p in panels:
-                if p.interview_type not in panel_by_type:
-                    panel_by_type[p.interview_type] = p
-
-            job_id = application.role_id if application else None
-            job_type = "Online"
-            venue = None
-            if application and application.role:
-                job_type = application.role.job_type or "Online"
-                venue = application.role.venue
-            is_offline = job_type and job_type.lower() == "offline"
-
-            # Collect all panel IDs for the 5-panel interview
-            panel_ids = []
-            for panel_type in ["HR", "Technical", "P1", "P2", "P3"]:
-                panel = panel_by_type.get(panel_type)
-                if panel:
-                    panel_ids.append(panel.id)
-
-            # Create ONE schedule with all panel IDs as JSON
-            import json
-            panel_ids_json = json.dumps(panel_ids) if panel_ids else None
-
-            schedule = InterviewSchedule(
-                candidate_id=candidate_id,
-                job_id=job_id,
-                date=target_date,
-                start_time=start_t,
-                end_time=end_t,
-                panel_id=panel_ids_json,
-                interview_status="pending"
-            )
-            db.add(schedule)
-            db.flush()
-
-            # Schedule background task only for online interviews (single task)
-            if not is_offline:
-                schedule_interview_task.delay(schedule.id, candidate_id)
-            else:
-                # For offline interviews, mark as scheduled without gmeet link
-                schedule.interview_status = "scheduled"
-                db.add(schedule)
-                db.commit()
-
-            try:
-                if is_offline:
-                    notif_message = f"Your parallel 5-panel interviews have been scheduled for {target_date} from 11:00 AM to 12:00 PM at venue: {venue or 'TBD'}."
-                else:
-                    notif_message = f"Your parallel 5-panel interviews have been scheduled for {target_date} from 11:00 AM to 12:00 PM."
-                NotificationService.create_activity_and_notify(
-                    db=db,
-                    candidate_id=candidate.id,
-                    user_id=candidate.user_id,
-                    activity_type=ActivityType.INTERVIEW_SCHEDULED,
-                    activity_title=f"Parallel interviews scheduled for {application.role.title if application and application.role else 'your role'}",
-                    notification_title="Interviews Scheduled",
-                    notification_message=notif_message,
-                    reference_id=application.id if application else None,
-                    notification_type=NotificationType.SUCCESS,
-                    icon="calendar",
-                    priority="high",
-                    redirect_url=f"/profile"
-                )
-            except Exception as notif_error:
-                print(f"Failed to create scheduling notification: {notif_error}")
-
         db.commit()
         return {"status": "success", "message": f"Candidate status updated to {data.status}"}
     except Exception as e:
@@ -770,6 +730,66 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
         candidate.panel_group_id = data.panel_group_id
         db.add(candidate)
         
+        # Find latest pending schedule for candidate
+        application = db.query(CandidateApplication).filter(
+            CandidateApplication.candidate_id == candidate_id
+        ).order_by(CandidateApplication.created_at.desc()).first()
+        job_id = application.role_id if application else None
+        
+        schedule = db.query(InterviewSchedule).filter(
+            InterviewSchedule.candidate_id == candidate_id,
+            InterviewSchedule.job_id == job_id,
+            InterviewSchedule.interview_status != "cancelled"
+        ).order_by(InterviewSchedule.created_at.desc()).first()
+        
+        if not schedule:
+            raise HTTPException(
+                status_code=400,
+                detail="Candidate does not have a scheduled interview slot. Please schedule date and time first."
+            )
+            
+        # Update schedule with panel
+        schedule.panel_id = data.panel_id
+        db.add(schedule)
+        
+        # Reuse existing gmeet_link if any
+        existing_gmeet_link = schedule.gmeet_link
+        if not existing_gmeet_link:
+            prior_schedule = db.query(InterviewSchedule).filter(
+                InterviewSchedule.candidate_id == candidate_id,
+                InterviewSchedule.gmeet_link.isnot(None),
+                InterviewSchedule.gmeet_link != ""
+            ).order_by(InterviewSchedule.created_at.desc()).first()
+            if prior_schedule:
+                existing_gmeet_link = prior_schedule.gmeet_link
+                schedule.gmeet_link = existing_gmeet_link
+                db.add(schedule)
+
+        # Update PanelGroup's meet_link dynamically based on candidate's interview slot
+        if existing_gmeet_link and data.panel_group_id:
+            from app.models.panel_group import PanelGroup
+            try:
+                group_id = int(data.panel_group_id)
+                group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
+                if group:
+                    group.meet_link = existing_gmeet_link
+                    db.add(group)
+            except ValueError:
+                group = db.query(PanelGroup).filter(PanelGroup.name == data.panel_group_id).first()
+                if group:
+                    group.meet_link = existing_gmeet_link
+                    db.add(group)
+
+        # Trigger Celery task to generate meeting link / send emails
+        schedule_interview_task.delay(schedule.id, candidate.id)
+        
+        # Update candidate status to Scheduled
+        candidate.status = "Scheduled"
+        if application:
+            application.status = "Scheduled"
+            db.add(application)
+            
+        # Create activity and notify
         try:
             NotificationService.create_activity_and_notify(
                 db=db,
@@ -778,8 +798,8 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
                 activity_type=ActivityType.PROFILE_UPDATED,
                 activity_title="Interview Panel Assigned",
                 notification_title="Panel Assigned",
-                notification_message="An interview panel group and category have been assigned to you.",
-                reference_id=None,
+                notification_message="An interview panel group and category have been assigned to you. The scheduling workflow has been started.",
+                reference_id=application.id if application else None,
                 notification_type=NotificationType.INFO,
                 icon="users",
                 priority="medium",
@@ -789,7 +809,346 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
             print(f"Failed to create notification: {notif_error}")
             
         db.commit()
-        return {"status": "success", "message": "Candidate panel reassigned successfully"}
+        return {"status": "success", "message": "Panel assigned and scheduling workflow started."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+class ImportSelectedResponse(BaseModel):
+    status: str
+    message: str
+    updated_count: int
+    skipped_count: int
+    errors: List[dict] = []
+
+
+@router.post("/candidates/import-selected", response_model=ImportSelectedResponse)
+async def import_selected_candidates(file: UploadFile = File(...)):
+    """
+    Import candidates from Excel file and transition Applied status to Uploaded.
+    Optionally sets scheduling details if columns are present.
+    """
+    db = SessionLocal()
+    updated_count = 0
+    skipped_count = 0
+    errors = []
+    
+    try:
+        content = await file.read()
+        workbook = openpyxl.load_workbook(io.BytesIO(content))
+        worksheet = workbook.active
+        
+        # Get headers from first row
+        headers = [str(cell.value).strip() if cell.value is not None else "" for cell in worksheet[1]]
+        
+        # Find column indices (0-indexed)
+        try:
+            id_col = headers.index("Candidate ID")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Missing required column: 'Candidate ID'")
+            
+        date_col = headers.index("Interview Date (YYYY-MM-DD)") if "Interview Date (YYYY-MM-DD)" in headers else -1
+        start_col = headers.index("Start Time (HH:MM)") if "Start Time (HH:MM)" in headers else -1
+        end_col = headers.index("End Time (HH:MM)") if "End Time (HH:MM)" in headers else -1
+        mode_col = headers.index("Interview Mode (Online/Offline)") if "Interview Mode (Online/Offline)" in headers else -1
+        
+        for row_idx, row in enumerate(
+            worksheet.iter_rows(min_row=2, values_only=True),
+            start=2
+        ):
+            candidate_id_raw = row[id_col]
+            if candidate_id_raw is None:
+                continue
+                
+            try:
+                candidate_id = int(str(candidate_id_raw).replace("candidate-", "").strip())
+            except ValueError:
+                errors.append({
+                    "row": row_idx,
+                    "error": f"Invalid Candidate ID: {candidate_id_raw}"
+                })
+                skipped_count += 1
+                continue
+                
+            # Find candidate
+            candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+            if not candidate:
+                errors.append({
+                    "row": row_idx,
+                    "error": f"Candidate with ID {candidate_id} not found"
+                })
+                skipped_count += 1
+                continue
+                
+            # Check status is Applied
+            # User requirement: "remember this should affect only applied candidate status not candidate who are already selected and waiting for interview scheduled"
+            # Application status is where we check
+            application = db.query(CandidateApplication).filter(
+                CandidateApplication.candidate_id == candidate.id
+            ).order_by(CandidateApplication.created_at.desc()).first()
+            
+            current_status = application.status if application else candidate.status
+            
+            if current_status != "Applied":
+                skipped_count += 1
+                continue
+                
+            # Update status to Selected
+            candidate.status = "Selected"
+            if application:
+                application.status = "Selected"
+                db.add(application)
+            db.add(candidate)
+            
+            # Parse and set schedule if cols are available and filled
+            if date_col != -1 and start_col != -1 and end_col != -1:
+                date_val = row[date_col]
+                start_val = row[start_col]
+                end_val = row[end_col]
+                mode_val = row[mode_col] if mode_col != -1 else "Online"
+                
+                if date_val and start_val and end_val:
+                    try:
+                        # Parse date
+                        if isinstance(date_val, (datetime, date)):
+                            target_date = date_val if isinstance(date_val, date) else date_val.date()
+                        else:
+                            target_date = datetime.strptime(str(date_val).strip(), "%Y-%m-%d").date()
+                            
+                        # Parse times
+                        if isinstance(start_val, time):
+                            start_time = start_val
+                        else:
+                            start_time = datetime.strptime(str(start_val).strip(), "%H:%M").time()
+                            
+                        if isinstance(end_val, time):
+                            end_time = end_val
+                        else:
+                            end_time = datetime.strptime(str(end_val).strip(), "%H:%M").time()
+                            
+                        mode_str = str(mode_val).strip().lower() if mode_val else "online"
+                        if mode_str not in ["online", "offline"]:
+                            mode_str = "online"
+                            
+                        # Fetch or create InterviewSchedule
+                        job_id = application.role_id if application else None
+                        
+                        # Determine next level
+                        next_lvl = "Level 1"
+                        if job_id:
+                            role = application.role
+                            if role:
+                                levels_str = role.level or ""
+                                if levels_str:
+                                    role_levels = [l.strip() for l in levels_str.split(",") if l.strip()]
+                                    completed_scheds = db.query(InterviewSchedule).filter(
+                                        InterviewSchedule.candidate_id == candidate.id,
+                                        InterviewSchedule.job_id == job_id,
+                                        InterviewSchedule.interview_status == "completed"
+                                    ).all()
+                                    completed_lvls = [s.interview_level for s in completed_scheds if s.interview_level]
+                                    for lvl in role_levels:
+                                        if lvl not in completed_lvls:
+                                            next_lvl = lvl
+                                            break
+                                        
+                        schedule = db.query(InterviewSchedule).filter(
+                            InterviewSchedule.candidate_id == candidate.id,
+                            InterviewSchedule.job_id == job_id,
+                            InterviewSchedule.interview_status != "cancelled"
+                        ).order_by(InterviewSchedule.created_at.desc()).first()
+                        
+                        if schedule and schedule.interview_status == "pending":
+                            schedule.date = target_date
+                            schedule.start_time = start_time
+                            schedule.end_time = end_time
+                            schedule.interview_mode = mode_str
+                            schedule.interview_level = next_lvl
+                            db.add(schedule)
+                        else:
+                            schedule = InterviewSchedule(
+                                candidate_id=candidate.id,
+                                job_id=job_id,
+                                date=target_date,
+                                start_time=start_time,
+                                end_time=end_time,
+                                interview_mode=mode_str,
+                                interview_level=next_lvl,
+                                interview_status="pending"
+                            )
+                            db.add(schedule)
+                    except Exception as parse_err:
+                        errors.append({
+                            "row": row_idx,
+                            "error": f"Failed to parse schedule: {str(parse_err)}"
+                        })
+                        
+            updated_count += 1
+            
+        db.commit()
+        return {
+            "status": "success" if len(errors) == 0 else "partial",
+            "message": f"Successfully updated {updated_count} candidates to Selected.",
+            "updated_count": updated_count,
+            "skipped_count": skipped_count,
+            "errors": errors
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.get("/candidates/{candidate_id}/next-level-info")
+def get_next_level_info(candidate_id: int):
+    db = SessionLocal()
+    try:
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        
+        application = db.query(CandidateApplication).filter(
+            CandidateApplication.candidate_id == candidate_id
+        ).order_by(CandidateApplication.created_at.desc()).first()
+        
+        if not application or not application.role:
+            return {"next_level": "Level 1", "completed_levels": [], "role_levels": ["Level 1"]}
+        
+        role = application.role
+        levels_str = role.level or ""
+        if not levels_str:
+            role_levels = ["Level 1"]
+        else:
+            role_levels = [l.strip() for l in levels_str.split(",") if l.strip()]
+        
+        # Get previous completed interview schedules
+        completed_schedules = db.query(InterviewSchedule).filter(
+            InterviewSchedule.candidate_id == candidate_id,
+            InterviewSchedule.job_id == role.id,
+            InterviewSchedule.interview_status == "completed"
+        ).all()
+        
+        completed_levels = [s.interview_level for s in completed_schedules if s.interview_level]
+        
+        next_level = None
+        for lvl in role_levels:
+            if lvl not in completed_levels:
+                next_level = lvl
+                break
+        
+        if not next_level:
+            next_level = f"Level {len(completed_levels) + 1}"
+            
+        return {
+            "next_level": next_level,
+            "completed_levels": completed_levels,
+            "role_levels": role_levels
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+class ScheduleManualRequest(BaseModel):
+    date: str
+    start_time: str
+    end_time: str
+    interview_mode: str
+    interview_level: Optional[str] = None
+
+
+@router.post("/candidates/{candidate_id}/schedule-manual")
+def schedule_manual(candidate_id: int, data: ScheduleManualRequest):
+    db = SessionLocal()
+    try:
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+            
+        try:
+            target_date = datetime.strptime(data.date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
+            
+        try:
+            start_time = datetime.strptime(data.start_time, "%H:%M").time()
+            end_time = datetime.strptime(data.end_time, "%H:%M").time()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid time format. Expected HH:MM")
+            
+        application = db.query(CandidateApplication).filter(
+            CandidateApplication.candidate_id == candidate_id
+        ).order_by(CandidateApplication.created_at.desc()).first()
+        job_id = application.role_id if application else None
+        
+        # Fetch or create InterviewSchedule
+        schedule = db.query(InterviewSchedule).filter(
+            InterviewSchedule.candidate_id == candidate_id,
+            InterviewSchedule.job_id == job_id,
+            InterviewSchedule.interview_status != "cancelled"
+        ).order_by(InterviewSchedule.created_at.desc()).first()
+        
+        if schedule and schedule.interview_status == "pending":
+            schedule.date = target_date
+            schedule.start_time = start_time
+            schedule.end_time = end_time
+            schedule.interview_mode = data.interview_mode.lower()
+            schedule.interview_level = data.interview_level
+            db.add(schedule)
+        else:
+            schedule = InterviewSchedule(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                date=target_date,
+                start_time=start_time,
+                end_time=end_time,
+                interview_mode=data.interview_mode.lower(),
+                interview_level=data.interview_level,
+                interview_status="pending"
+            )
+            db.add(schedule)
+
+        # Reuse existing gmeet_link if any
+        if not schedule.gmeet_link:
+            prior_schedule = db.query(InterviewSchedule).filter(
+                InterviewSchedule.candidate_id == candidate_id,
+                InterviewSchedule.gmeet_link.isnot(None),
+                InterviewSchedule.gmeet_link != ""
+            ).order_by(InterviewSchedule.created_at.desc()).first()
+            if prior_schedule:
+                schedule.gmeet_link = prior_schedule.gmeet_link
+                db.add(schedule)
+
+        # Update PanelGroup's meet_link directly
+        if schedule.gmeet_link and candidate.panel_group_id:
+            from app.models.panel_group import PanelGroup
+            try:
+                group_id = int(candidate.panel_group_id)
+                group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
+                if group:
+                    group.meet_link = schedule.gmeet_link
+                    db.add(group)
+            except ValueError:
+                group = db.query(PanelGroup).filter(PanelGroup.name == candidate.panel_group_id).first()
+                if group:
+                    group.meet_link = schedule.gmeet_link
+                    db.add(group)
+            
+        # Update candidate status to Selected
+        candidate.status = "Selected"
+        if application:
+            application.status = "Selected"
+            db.add(application)
+            
+        db.commit()
+        return {"status": "success", "message": "Interview slot scheduled successfully. Awaiting panel assignment."}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -857,6 +1216,32 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
                 interview_status="pending"
             )
             db.add(schedule)
+        
+        # Reuse existing gmeet_link if any
+        if not schedule.gmeet_link:
+            prior_schedule = db.query(InterviewSchedule).filter(
+                InterviewSchedule.candidate_id == candidate_id,
+                InterviewSchedule.gmeet_link.isnot(None),
+                InterviewSchedule.gmeet_link != ""
+            ).order_by(InterviewSchedule.created_at.desc()).first()
+            if prior_schedule:
+                schedule.gmeet_link = prior_schedule.gmeet_link
+                db.add(schedule)
+
+        # Update PanelGroup's meet_link directly
+        if schedule.gmeet_link and candidate.panel_group_id:
+            from app.models.panel_group import PanelGroup
+            try:
+                group_id = int(candidate.panel_group_id)
+                group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
+                if group:
+                    group.meet_link = schedule.gmeet_link
+                    db.add(group)
+            except ValueError:
+                group = db.query(PanelGroup).filter(PanelGroup.name == candidate.panel_group_id).first()
+                if group:
+                    group.meet_link = schedule.gmeet_link
+                    db.add(group)
         
         db.commit()
         db.refresh(schedule)
@@ -982,19 +1367,36 @@ async def import_panels(file: UploadFile = File(...)):
             worksheet.iter_rows(min_row=2, values_only=True),
             start=2
         ):
-            try:
-                full_name = row[0]
-                email = row[1]
-                password = row[2]
-                role = row[3] or "panel"
+            if not row:
+                continue
 
-                hr_panelists_name = row[4]
-                hr_panelist_grade = row[5]
-                hr_panel_mobile = row[6]
-                tag_coordinator = row[7]
-                slots = row[8]
-                team_link = row[9]
-                interview_type = row[10]
+            # Skip if the entire row contains only None or empty strings
+            if all(val is None or str(val).strip() == "" for val in row):
+                continue
+
+            # Helper to safely retrieve values from the row to avoid IndexError
+            def get_val(r, idx):
+                return r[idx] if idx < len(r) else None
+
+            full_name = get_val(row, 0)
+            email = get_val(row, 1)
+            password = get_val(row, 2)
+
+            # Skip if all required fields are empty
+            if (not full_name or str(full_name).strip() == "") and \
+               (not email or str(email).strip() == "") and \
+               (not password or str(password).strip() == ""):
+                continue
+
+            try:
+                role = get_val(row, 3) or "panel"
+                hr_panelists_name = get_val(row, 4)
+                hr_panelist_grade = get_val(row, 5)
+                hr_panel_mobile = get_val(row, 6)
+                tag_coordinator = get_val(row, 7)
+                slots = get_val(row, 8)
+                team_link = get_val(row, 9)
+                interview_type = get_val(row, 10)
 
                 if not full_name or not email or not password:
                     errors.append({
@@ -1011,33 +1413,42 @@ async def import_panels(file: UploadFile = File(...)):
                 )
 
                 if existing_user:
-                    errors.append({
-                        "row": row_idx,
-                        "error": f"Email {email} already exists"
-                    })
-                    failed_count += 1
-                    continue
+                    user = existing_user
+                    if user.role != "panel" and user.role != "admin":
+                        user.role = "panel"
+                        db.add(user)
+                        db.flush()
+                else:
+                    user = User(
+                        full_name=str(full_name).strip(),
+                        email=str(email).strip(),
+                        password=str(password).strip(),
+                        role=str(role).strip() or "panel"
+                    )
+                    db.add(user)
+                    db.flush()
 
-                user = User(
-                    full_name=str(full_name).strip(),
-                    email=str(email).strip(),
-                    password=str(password).strip(),
-                    role=str(role).strip()
-                )
-
-                db.add(user)
-                db.flush()
-
-                panel = Panel(
-                    hr_panelists_name=str(hr_panelists_name).strip() if hr_panelists_name else None,
-                    hr_panelist_grade=str(hr_panelist_grade).strip() if hr_panelist_grade else None,
-                    hr_panel_mobile=str(hr_panel_mobile).strip() if hr_panel_mobile else None,
-                    tag_coordinator=str(tag_coordinator).strip() if tag_coordinator else None,
-                    slots=str(slots).strip() if slots else None,
-                    team_link=str(team_link).strip() if team_link else None,
-                    interview_type=str(interview_type).strip() if interview_type else None,
-                )
-
+                # Find or create corresponding Panel record for this user
+                panel = db.query(Panel).filter(Panel.user_id == user.id).first()
+                if panel:
+                    panel.hr_panelists_name = str(hr_panelists_name).strip() if hr_panelists_name else panel.hr_panelists_name
+                    panel.hr_panelist_grade = str(hr_panelist_grade).strip() if hr_panelist_grade else panel.hr_panelist_grade
+                    panel.hr_panel_mobile = str(hr_panel_mobile).strip() if hr_panel_mobile else panel.hr_panel_mobile
+                    panel.tag_coordinator = str(tag_coordinator).strip() if tag_coordinator else panel.tag_coordinator
+                    panel.slots = str(slots).strip() if slots else panel.slots
+                    panel.team_link = str(team_link).strip() if team_link else panel.team_link
+                    panel.interview_type = str(interview_type).strip() if interview_type else panel.interview_type
+                else:
+                    panel = Panel(
+                        user_id=user.id,
+                        hr_panelists_name=str(hr_panelists_name).strip() if hr_panelists_name else None,
+                        hr_panelist_grade=str(hr_panelist_grade).strip() if hr_panelist_grade else None,
+                        hr_panel_mobile=str(hr_panel_mobile).strip() if hr_panel_mobile else None,
+                        tag_coordinator=str(tag_coordinator).strip() if tag_coordinator else None,
+                        slots=str(slots).strip() if slots else None,
+                        team_link=str(team_link).strip() if team_link else None,
+                        interview_type=str(interview_type).strip() if interview_type else None,
+                    )
                 db.add(panel)
                 db.commit()
 
@@ -1207,3 +1618,247 @@ def delete_job_role(role_id: int):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@router.get("/panels/busy")
+def get_busy_panels(date_str: str, start_time_str: str, end_time_str: str):
+    """
+    Get a list of panel IDs that are busy (have overlapping scheduled interviews)
+    on the given date and time range.
+    """
+    db = SessionLocal()
+    try:
+        try:
+            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
+            
+        try:
+            def parse_time(t_str):
+                t_str = t_str.strip()
+                t_str = " ".join(t_str.split())
+                for fmt in ("%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M%p"):
+                    try:
+                        return datetime.strptime(t_str, fmt).time()
+                    except ValueError:
+                        continue
+                raise ValueError(f"Invalid time format: {t_str}")
+                
+            start_time = parse_time(start_time_str)
+            end_time = parse_time(end_time_str)
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+            
+        # Query overlapping schedules
+        overlapping = db.query(InterviewSchedule).filter(
+            InterviewSchedule.date == target_date,
+            InterviewSchedule.interview_status != "cancelled",
+            InterviewSchedule.start_time < end_time,
+            InterviewSchedule.end_time > start_time
+        ).all()
+        
+        busy_ids = []
+        for s in overlapping:
+            if s.panel_id:
+                try:
+                    p_ids = json.loads(s.panel_id)
+                    if isinstance(p_ids, list):
+                        busy_ids.extend([str(pid) for pid in p_ids])
+                    else:
+                        busy_ids.append(str(p_ids))
+                except Exception:
+                    busy_ids.append(s.panel_id)
+                    
+        return {"busy_panel_ids": list(set(busy_ids))}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+class PanelListResponse(BaseModel):
+    id: int
+    name: str
+    user_id: Optional[int] = None
+    interview_type: Optional[str] = None
+    panel_group_id: Optional[int] = None
+
+
+@router.get("/panels", response_model=List[PanelListResponse])
+def get_db_panels():
+    db = SessionLocal()
+    try:
+        panels = db.query(Panel).all()
+        result = []
+        for p in panels:
+            name = p.hr_panelists_name
+            if not name and p.user_id:
+                user = db.query(User).filter(User.id == p.user_id).first()
+                if user:
+                    name = user.full_name
+            if not name:
+                name = f"Panel {p.id}"
+            result.append(
+                PanelListResponse(
+                    id=p.id,
+                    name=name,
+                    user_id=p.user_id,
+                    interview_type=p.interview_type,
+                    panel_group_id=p.panel_group_id
+                )
+            )
+        return result
+    finally:
+        db.close()
+
+
+class PanelGroupCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    meet_link: Optional[str] = None
+
+
+class PanelMemberResponse(BaseModel):
+    id: int
+    name: str
+    user_id: Optional[int] = None
+    interview_type: Optional[str] = None
+
+
+class PanelGroupResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    meet_link: Optional[str] = None
+    members: List[PanelMemberResponse] = []
+
+
+class AssignPanelGroupRequest(BaseModel):
+    panel_group_id: Optional[int] = None
+
+
+@router.post("/panel-groups", response_model=PanelGroupResponse)
+def create_panel_group(data: PanelGroupCreateRequest):
+    db = SessionLocal()
+    try:
+        existing = db.query(PanelGroup).filter(PanelGroup.name == data.name.strip()).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Panel group '{data.name}' already exists.")
+            
+        group = PanelGroup(
+            name=data.name.strip(),
+            description=data.description.strip() if data.description else None,
+            meet_link=data.meet_link.strip() if data.meet_link else None
+        )
+        db.add(group)
+        db.commit()
+        db.refresh(group)
+        return PanelGroupResponse(
+            id=group.id,
+            name=group.name,
+            description=group.description,
+            meet_link=group.meet_link,
+            members=[]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.get("/panel-groups", response_model=List[PanelGroupResponse])
+def list_panel_groups():
+    db = SessionLocal()
+    try:
+        groups = db.query(PanelGroup).all()
+        result = []
+        for g in groups:
+            members = []
+            for p in g.panels:
+                name = p.hr_panelists_name
+                if not name and p.user_id:
+                    user = db.query(User).filter(User.id == p.user_id).first()
+                    if user:
+                        name = user.full_name
+                if not name:
+                    name = f"Panel {p.id}"
+                members.append(
+                    PanelMemberResponse(
+                        id=p.id,
+                        name=name,
+                        user_id=p.user_id,
+                        interview_type=p.interview_type
+                    )
+                )
+            result.append(
+                PanelGroupResponse(
+                    id=g.id,
+                    name=g.name,
+                    description=g.description,
+                    meet_link=g.meet_link,
+                    members=members
+                )
+            )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.delete("/panel-groups/{group_id}")
+def delete_panel_group(group_id: int):
+    db = SessionLocal()
+    try:
+        group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Panel group not found.")
+            
+        for p in group.panels:
+            p.panel_group_id = None
+            db.add(p)
+            
+        db.delete(group)
+        db.commit()
+        return {"status": "success", "message": "Panel group deleted successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.put("/panels/{panel_id}/assign-group")
+def assign_panel_group(panel_id: int, data: AssignPanelGroupRequest):
+    db = SessionLocal()
+    try:
+        panel = db.query(Panel).filter(Panel.id == panel_id).first()
+        if not panel:
+            raise HTTPException(status_code=404, detail="Panelist not found.")
+            
+        if data.panel_group_id is not None:
+            group = db.query(PanelGroup).filter(PanelGroup.id == data.panel_group_id).first()
+            if not group:
+                raise HTTPException(status_code=404, detail="Panel group not found.")
+            panel.panel_group_id = data.panel_group_id
+        else:
+            panel.panel_group_id = None
+            
+        db.add(panel)
+        db.commit()
+        return {"status": "success", "message": "Panel group assigned successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+

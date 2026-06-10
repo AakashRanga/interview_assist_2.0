@@ -349,7 +349,7 @@ export function PanelDashboard() {
                   'success' :
                   candidate.status === 'Rejected' ?
                   'danger' :
-                  candidate.status === 'Interviewed' ?
+                  candidate.status === 'Completed' ?
                   'info' :
                   candidate.status === 'Scheduled' ?
                   'primary' :
