@@ -19,7 +19,8 @@ import {
   AwardIcon,
   MapPinIcon,
   ClockIcon,
-  UsersIcon } from
+  UsersIcon,
+  ShieldIcon } from
 'lucide-react';
 import { API_BASE_URL } from '../config';
 
@@ -69,11 +70,59 @@ export function CandidateProfile() {
   const [loading, setLoading] = useState(true);
   const [section, setSection] = useState<string>('personal');
 
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [updatingPassword, setUpdatingPassword] = useState(false);
+
+  const handleUpdatePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error('Please fill in all password fields');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
+    if (!userId) {
+      toast.error('Session not found. Please log in.');
+      return;
+    }
+
+    setUpdatingPassword(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          current_password: currentPassword,
+          new_password: newPassword
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success('Password updated successfully');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      } else {
+        toast.error(data.detail || 'Failed to update password');
+      }
+    } catch (err) {
+      toast.error('Failed to connect to server');
+    } finally {
+      setUpdatingPassword(false);
+    }
+  };
+
   useEffect(() => {
     const hash = window.location.hash;
     if (hash) {
       const sectionId = hash.replace('#', '');
-      const validSections = ['personal', 'education', 'experience', 'skills', 'preferences', 'documents', 'links'];
+      const validSections = ['personal', 'education', 'experience', 'skills', 'preferences', 'documents', 'links', 'security'];
       if (validSections.includes(sectionId)) {
         setSection(sectionId);
       }
@@ -716,6 +765,11 @@ export function CandidateProfile() {
     id: 'links',
     label: 'Links',
     icon: LinkIcon
+  },
+  {
+    id: 'security',
+    label: 'Security',
+    icon: ShieldIcon
   }];
 
   if (loading) {
@@ -837,43 +891,23 @@ export function CandidateProfile() {
                   <Input
                     label="Full Name"
                     value={personalInfo.fullName}
-                    onChange={(e) =>
-                    setPersonalInfo({
-                      ...personalInfo,
-                      fullName: e.target.value
-                    })
-                    } />
+                    disabled />
                   
                   <Input
                     label="Email"
                     type="email"
                     value={personalInfo.email}
-                    onChange={(e) =>
-                    setPersonalInfo({
-                      ...personalInfo,
-                      email: e.target.value
-                    })
-                    } />
+                    disabled />
                   
                   <Input
                     label="Phone"
                     value={personalInfo.phone}
-                    onChange={(e) =>
-                    setPersonalInfo({
-                      ...personalInfo,
-                      phone: e.target.value
-                    })
-                    } />
+                    disabled />
                   
                   <Input
                     label="Location"
                     value={personalInfo.location}
-                    onChange={(e) =>
-                    setPersonalInfo({
-                      ...personalInfo,
-                      location: e.target.value
-                    })
-                    } />
+                    disabled />
                   
                 </div>
               </GlassCard>
@@ -1714,28 +1748,91 @@ export function CandidateProfile() {
             </motion.section>
           )}
 
+          {/* Security */}
+          {section === 'security' && (
+            <motion.section
+              id="security"
+              initial={{
+                opacity: 0,
+                y: 20
+              }}
+              animate={{
+                opacity: 1,
+                y: 0
+              }}
+              transition={{
+                delay: 0.1
+              }}>
+              <GlassCard className="p-6">
+                <div className="flex items-center space-x-3 mb-6">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                    <ShieldIcon className="w-5 h-5 text-primary" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-secondary">
+                    Security
+                  </h2>
+                </div>
+                <div className="space-y-4">
+                  <Input
+                    label="Current Password"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    disabled={updatingPassword}
+                  />
+                  <Input
+                    label="New Password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    disabled={updatingPassword}
+                  />
+                  <Input
+                    label="Confirm New Password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    disabled={updatingPassword}
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={handleUpdatePassword}
+                      disabled={updatingPassword}
+                    >
+                      <ShieldIcon className="w-3.5 h-3.5 mr-2" />
+                      {updatingPassword ? 'Updating...' : 'Update Password'}
+                    </Button>
+                  </div>
+                </div>
+              </GlassCard>
+            </motion.section>
+          )}
+
           {/* Submit */}
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 20
-            }}
-            animate={{
-              opacity: 1,
-              y: 0
-            }}
-            transition={{
-              delay: 0.4
-            }}
-            className="flex justify-end space-x-3">
-            
-            <Button variant="outline" size="lg" onClick={() => handleSave(true)}>
-              Save Draft
-            </Button>
-            <Button size="lg" onClick={handleSubmit} disabled={appliedRoleIds.size > 0}>
-              Schedule Interview
-            </Button>
-          </motion.div>
+          {section !== 'security' && (
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 20
+              }}
+              animate={{
+                opacity: 1,
+                y: 0
+              }}
+              transition={{
+                delay: 0.4
+              }}
+              className="flex justify-end space-x-3">
+              
+              <Button variant="outline" size="lg" onClick={() => handleSave(true)}>
+                Save Draft
+              </Button>
+              <Button size="lg" onClick={handleSubmit} disabled={appliedRoleIds.size > 0}>
+                Schedule Interview
+              </Button>
+            </motion.div>
+          )}
         </div>
       </div>
     </DashboardLayout>);

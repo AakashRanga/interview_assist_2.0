@@ -126,6 +126,11 @@ export function Sidebar({
     icon: BellIcon,
     label: 'Notifications',
     badge: unreadCount
+  },
+  {
+    to: '/panel/settings',
+    icon: SettingsIcon,
+    label: 'Settings'
   }];
 
   const adminLinks: SidebarLink[] = [

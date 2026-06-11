@@ -110,3 +110,34 @@ def login(data: UserLoginRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+class ChangePasswordRequest(BaseModel):
+    user_id: int
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+def change_password(data: ChangePasswordRequest):
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == data.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.password != data.current_password:
+            raise HTTPException(status_code=400, detail="Incorrect current password")
+        user.password = data.new_password
+        db.add(user)
+        db.commit()
+        return {
+            "status": "success",
+            "message": "Password updated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()

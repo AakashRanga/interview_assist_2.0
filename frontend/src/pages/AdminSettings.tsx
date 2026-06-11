@@ -6,6 +6,7 @@ import { GlassCard } from '../components/ui/GlassCard';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { useTheme } from '../contexts/ThemeContext';
+import { API_BASE_URL } from '../config';
 import {
   UserIcon,
   BellIcon,
@@ -59,6 +60,66 @@ export function AdminSettings() {
     feedback: false,
     weekly: true
   });
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [updatingPassword, setUpdatingPassword] = useState(false);
+
+  const handleUpdatePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error('Please fill in all password fields');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
+    const userStr = localStorage.getItem('user');
+    if (!userStr) {
+      toast.error('Session not found. Please log in.');
+      return;
+    }
+    
+    let userId;
+    try {
+      const user = JSON.parse(userStr);
+      userId = user?.id;
+    } catch (e) {}
+    
+    if (!userId) {
+      toast.error('User ID not found in session.');
+      return;
+    }
+
+    setUpdatingPassword(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          current_password: currentPassword,
+          new_password: newPassword
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success('Password updated successfully');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      } else {
+        toast.error(data.detail || 'Failed to update password');
+      }
+    } catch (err) {
+      toast.error('Failed to connect to server');
+    } finally {
+      setUpdatingPassword(false);
+    }
+  };
   const sections = [
   {
     id: 'profile' as Section,
@@ -158,30 +219,19 @@ export function AdminSettings() {
                   <div className="w-14 h-14 rounded-full bg-primary/20 flex items-center justify-center">
                     <span className="text-base font-bold text-primary">AU</span>
                   </div>
-                  <Button size="sm" variant="outline">
+                  <Button size="sm" variant="outline" disabled>
                     Change Photo
                   </Button>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-3">
-                  <Input label="Full Name" defaultValue="Admin User" />
+                  <Input label="Full Name" defaultValue="Admin User" disabled />
                   <Input
                   label="Email"
                   type="email"
-                  defaultValue="admin@inteviu.com" />
+                  defaultValue="admin@inteviu.com" disabled />
                 
-                  <Input label="Phone" defaultValue="+1 (555) 000-0000" />
+                  <Input label="Phone" defaultValue="+1 (555) 000-0000" disabled />
                   <Input label="Role" defaultValue="Super Admin" disabled />
-                </div>
-                <div className="flex justify-end gap-2 mt-5">
-                  <Button variant="outline" size="sm">
-                    Cancel
-                  </Button>
-                  <Button
-                  size="sm"
-                  onClick={() => toast.success('Profile updated')}>
-                  
-                    Save Changes
-                  </Button>
                 </div>
               </GlassCard>
             </motion.div>
@@ -276,16 +326,35 @@ export function AdminSettings() {
                   Security
                 </h2>
                 <div className="space-y-3">
-                  <Input label="Current Password" type="password" />
-                  <Input label="New Password" type="password" />
-                  <Input label="Confirm New Password" type="password" />
+                  <Input
+                    label="Current Password"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    disabled={updatingPassword}
+                  />
+                  <Input
+                    label="New Password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    disabled={updatingPassword}
+                  />
+                  <Input
+                    label="Confirm New Password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    disabled={updatingPassword}
+                  />
                   <div className="flex justify-end">
                     <Button
-                    size="sm"
-                    onClick={() => toast.success('Password updated')}>
-                    
+                      size="sm"
+                      onClick={handleUpdatePassword}
+                      disabled={updatingPassword}
+                    >
                       <KeyIcon className="w-3 h-3" />
-                      Update Password
+                      {updatingPassword ? 'Updating...' : 'Update Password'}
                     </Button>
                   </div>
                 </div>

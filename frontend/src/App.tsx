@@ -18,6 +18,7 @@ import { AdminRoles } from './pages/AdminRoles';
 import { AdminSchedule } from './pages/AdminSchedule';
 import { AdminAnalytics } from './pages/AdminAnalytics';
 import { AdminSettings } from './pages/AdminSettings';
+import { PanelSettings } from './pages/PanelSettings';
 import { Landing } from './pages/Landing';
 export function App() {
   return (
@@ -48,6 +49,7 @@ export function App() {
           <Route path="/panel/candidates" element={<PanelCandidates />} />
           <Route path="/panel/schedule" element={<PanelSchedule />} />
           <Route path="/panel/notifications" element={<PanelNotifications />} />
+          <Route path="/panel/settings" element={<PanelSettings />} />
 
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
