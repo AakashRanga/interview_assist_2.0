@@ -25,8 +25,65 @@ import {
   UploadIcon,
   UserPlusIcon,
   DownloadIcon,
-  Trash2Icon
+  Trash2Icon,
+  MapPinIcon
 } from 'lucide-react';
+
+const parseTime = (timePart: string): Date | null => {
+  const match = timePart.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
+  if (!match) return null;
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const ampm = match[3].toUpperCase();
+  
+  if (ampm === 'PM' && hours < 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+  
+  const d = new Date();
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+};
+
+const isSlotActive = (dateStr: string, timeStr: string): boolean => {
+  try {
+    const today = new Date();
+    const d = new Date(dateStr);
+    if (d.getFullYear() !== today.getFullYear() ||
+        d.getMonth() !== today.getMonth() ||
+        d.getDate() !== today.getDate()) {
+      return false;
+    }
+    
+    const parts = timeStr.split('-');
+    if (parts.length < 2) {
+      const start = parseTime(parts[0].trim());
+      if (!start) return false;
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      return today >= start && today <= end;
+    }
+    
+    const start = parseTime(parts[0].trim());
+    const end = parseTime(parts[1].trim());
+    if (!start || !end) return false;
+    
+    return today >= start && today <= end;
+  } catch (e) {
+    return false;
+  }
+};
+
+const getInterviewStartDateTime = (dateStr: string, timeStr: string): Date | null => {
+  try {
+    const d = new Date(dateStr);
+    const parts = timeStr.split('-');
+    const start = parseTime(parts[0].trim());
+    if (!start) return null;
+    d.setHours(start.getHours(), start.getMinutes(), 0, 0);
+    return d;
+  } catch (e) {
+    return null;
+  }
+};
 
 interface ScheduleItem {
   id: string;
@@ -36,9 +93,17 @@ interface ScheduleItem {
   date: string;
   time: string;
   mode: 'Online' | 'Offline';
+  meetLink?: string;
 }
 
 export function AdminPanels() {
+  const [timeTick, setTimeTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeTick(t => t + 1);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
   const [panelGroups, setPanelGroups] = useState<any[]>([]);
   const [dbPanels, setDbPanels] = useState<any[]>([]);
   const [candidates, setCandidates] = useState<any[]>([]);
@@ -59,6 +124,19 @@ export function AdminPanels() {
 
   const scheduleRef = useRef<HTMLDivElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
+
+  const [activeSelectPanelist, setActiveSelectPanelist] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.panelist-dropdown-container')) {
+        setActiveSelectPanelist(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
   const fetchPanelGroups = async () => {
     try {
@@ -262,18 +340,18 @@ export function AdminPanels() {
 
   const groupInterviews = useMemo(() => {
     if (!selectedGroupId) return [];
-    
+
     // Find panelists belonging to this group
     const groupPanelIds = dbPanels
       .filter(p => p.panel_group_id === selectedGroupId)
       .map(p => String(p.id));
-      
+
     return candidates
       .filter(c => (String(c.panelGroupId) === String(selectedGroupId) || groupPanelIds.includes(String(c.panelId))) && c.interviewDate)
       .map((c): ScheduleItem => {
         const dbPanel = dbPanels.find(p => String(p.id) === String(c.panelId));
         const panelName = dbPanel ? dbPanel.name : (c.panelId || 'General');
-        
+
         return {
           id: `c-sched-${c.id}`,
           candidate: c.name,
@@ -281,7 +359,8 @@ export function AdminPanels() {
           role: `${c.role} (${panelName})`,
           date: c.interviewDate,
           time: c.interviewTime || '',
-          mode: c.mode as 'Online' | 'Offline'
+          mode: c.mode as 'Online' | 'Offline',
+          meetLink: c.meetLink || ''
         };
       });
   }, [selectedGroupId, candidates, dbPanels]);
@@ -297,7 +376,7 @@ export function AdminPanels() {
       month: 'long'
     });
     const interviewsByDay = new Map<number, ScheduleItem[]>();
-    
+
     groupInterviews.forEach((s) => {
       const d = new Date(s.date);
       if (d.getFullYear() !== year || d.getMonth() !== month) return;
@@ -305,11 +384,11 @@ export function AdminPanels() {
       if (!interviewsByDay.has(day)) interviewsByDay.set(day, []);
       interviewsByDay.get(day)!.push(s);
     });
-    
+
     const days: (number | null)[] = [];
     for (let i = 0; i < firstDay; i++) days.push(null);
     for (let d = 1; d <= daysInMonth; d++) days.push(d);
-    
+
     return {
       year,
       month,
@@ -321,8 +400,8 @@ export function AdminPanels() {
 
   const selectedDayInterviews =
     selectedGroup && selectedDate && calendarData ?
-    calendarData.interviewsByDay.get(selectedDate.getDate()) || [] :
-    [];
+      calendarData.interviewsByDay.get(selectedDate.getDate()) || [] :
+      [];
 
   const handleDateButtonClick = (group: any) => {
     if (selectedGroupId === group.id) {
@@ -342,8 +421,8 @@ export function AdminPanels() {
     const groupPanelIds = dbPanels
       .filter(p => p.panel_group_id === groupId)
       .map(p => String(p.id));
-      
-    return candidates.filter(c => 
+
+    return candidates.filter(c =>
       (String(c.panelGroupId) === String(groupId) || groupPanelIds.includes(String(c.panelId))) &&
       c.status !== 'Completed' && c.status !== 'Rejected'
     ).length;
@@ -356,6 +435,58 @@ export function AdminPanels() {
       day: 'numeric',
       year: 'numeric'
     });
+  };
+
+  const getActiveGroupMeetLink = (group: any) => {
+    const groupPanelIds = dbPanels
+      .filter(p => p.panel_group_id === group.id)
+      .map(p => String(p.id));
+
+    const groupCandidates = candidates.filter(c =>
+      (String(c.panelGroupId) === String(group.id) || groupPanelIds.includes(String(c.panelId))) &&
+      c.interviewDate &&
+      c.interviewTime &&
+      c.meetLink &&
+      c.mode === 'Online'
+    );
+
+    // 1. Check for currently active candidate
+    const activeCandidate = groupCandidates.find(c => isSlotActive(c.interviewDate, c.interviewTime));
+    if (activeCandidate) {
+      return {
+        link: activeCandidate.meetLink,
+        status: 'active',
+        candidateName: activeCandidate.name,
+        timeInfo: activeCandidate.interviewTime
+      };
+    }
+
+    // 2. Check for next upcoming candidate
+    const now = new Date();
+    const upcomingCandidates = groupCandidates
+      .map(c => {
+        const startDateTime = getInterviewStartDateTime(c.interviewDate, c.interviewTime);
+        return { candidate: c, startDateTime };
+      })
+      .filter(item => item.startDateTime && item.startDateTime > now)
+      .sort((a, b) => a.startDateTime!.getTime() - b.startDateTime!.getTime());
+
+    if (upcomingCandidates.length > 0) {
+      const upcomingCandidate = upcomingCandidates[0].candidate;
+      return {
+        link: upcomingCandidate.meetLink,
+        status: 'upcoming',
+        candidateName: upcomingCandidate.name,
+        timeInfo: `${formatShortDate(upcomingCandidate.interviewDate)} @ ${upcomingCandidate.interviewTime.split('-')[0].trim()}`
+      };
+    }
+
+    return {
+      link: null,
+      status: 'none',
+      candidateName: null,
+      timeInfo: null
+    };
   };
 
   return (
@@ -416,7 +547,7 @@ export function AdminPanels() {
             const currentLoad = getGroupLoad(group.id);
             const loadPct = Math.min((currentLoad / 10) * 100, 100);
             const isSelected = group.id === selectedGroupId;
-            
+
             return (
               <motion.div
                 key={group.id}
@@ -425,9 +556,8 @@ export function AdminPanels() {
                 transition={{ delay: idx * 0.06 }}
               >
                 <GlassCard
-                  className={`p-4 h-full flex flex-col transition-all ${
-                    isSelected ? 'ring-2 ring-primary/60 shadow-glass-lg' : ''
-                  }`}
+                  className={`p-4 h-full flex flex-col transition-all ${isSelected ? 'ring-2 ring-primary/60 shadow-glass-lg' : ''
+                    }`}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center space-x-2 min-w-0">
@@ -443,7 +573,7 @@ export function AdminPanels() {
                         </div>
                       </div>
                     </div>
-                    <button 
+                    <button
                       onClick={() => handleDeleteGroup(group.id)}
                       className="p-1.5 hover:bg-red-500/10 text-secondary/60 hover:text-red-600 rounded-lg transition-colors flex-shrink-0"
                       title="Delete panel group"
@@ -456,11 +586,10 @@ export function AdminPanels() {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => handleDateButtonClick(group)}
-                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 border rounded-xl transition-colors mb-3 group ${
-                      isSelected
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-primary/10 hover:bg-primary/20 border-primary/20'
-                    }`}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 border rounded-xl transition-colors mb-3 group ${isSelected
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-primary/10 hover:bg-primary/20 border-primary/20'
+                      }`}
                   >
                     <div className="flex items-center gap-2">
                       <CalendarIcon
@@ -468,25 +597,22 @@ export function AdminPanels() {
                       />
                       <div className="text-left">
                         <div
-                          className={`text-[9px] uppercase tracking-wider ${
-                            isSelected ? 'text-white/80' : 'text-secondary/60'
-                          }`}
+                          className={`text-[9px] uppercase tracking-wider ${isSelected ? 'text-white/80' : 'text-secondary/60'
+                            }`}
                         >
                           Interviews Scheduled
                         </div>
                         <div
-                          className={`text-[12px] font-semibold ${
-                            isSelected ? 'text-white' : 'text-secondary'
-                          }`}
+                          className={`text-[12px] font-semibold ${isSelected ? 'text-white' : 'text-secondary'
+                            }`}
                         >
                           {currentLoad} active
                         </div>
                       </div>
                     </div>
                     <span
-                      className={`text-[10px] font-medium ${
-                        isSelected ? 'text-white' : 'text-primary'
-                      }`}
+                      className={`text-[10px] font-medium ${isSelected ? 'text-white' : 'text-primary'
+                        }`}
                     >
                       {isSelected ? 'Hide' : 'Schedule ↓'}
                     </span>
@@ -519,23 +645,28 @@ export function AdminPanels() {
                               ID: {m.id} • {m.interview_type || 'General'}
                             </span>
                           </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <select
-                              value={String(group.id)}
-                              onChange={(e) => {
-                                const targetGroupId = e.target.value ? Number(e.target.value) : null;
-                                handleAssignPanelist(m.id, targetGroupId);
-                              }}
-                              className="text-[9px] bg-white border border-white/60 rounded-lg px-1 py-0.5 text-secondary focus:outline-none font-medium cursor-pointer"
-                            >
-                              {panelGroups.map((g) => (
-                                <option key={g.id} value={g.id}>
-                                  {g.name.slice(0, 8)}
-                                </option>
-                              ))}
-                              <option value="">Unassign</option>
-                            </select>
-                          </div>
+                          <select
+                            value={group.id}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === 'unassign') {
+                                handleAssignPanelist(m.id, null);
+                              } else {
+                                handleAssignPanelist(m.id, Number(val));
+                              }
+                            }}
+                            className="text-[9px] border border-white/60 rounded-lg px-1.5 py-0.5 focus:outline-none font-medium cursor-pointer"
+                            style={{ backgroundColor: '#02f5761a', color: '#02f576' }}
+                          >
+                            {panelGroups.map((g) => (
+                              <option key={g.id} value={g.id} style={{ backgroundColor: '#1e293b', color: '#02f576' }}>
+                                {g.name.slice(0, 8)}
+                              </option>
+                            ))}
+                            <option value="unassign" style={{ backgroundColor: '#1e293b', color: '#ff4b4b' }}>
+                              Unassign
+                            </option>
+                          </select>
                         </li>
                       ))}
                       {(!group.members || group.members.length === 0) && (
@@ -559,35 +690,66 @@ export function AdminPanels() {
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${loadPct}%` }}
-                        className={`h-full ${
-                          currentLoad >= 10 ? 'bg-red-500' : currentLoad > 7 ? 'bg-yellow-500' : 'bg-primary'
-                        }`}
+                        className={`h-full ${currentLoad >= 10 ? 'bg-red-500' : currentLoad > 7 ? 'bg-yellow-500' : 'bg-primary'
+                          }`}
                       />
                     </div>
                   </div>
 
-                  {group.meet_link && (
-                    <div className="bg-white/60 rounded-xl p-2.5 mt-auto border border-white/50">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <VideoIcon className="w-2.5 h-2.5 text-primary" />
-                        <span className="text-[9px] text-secondary/60 uppercase tracking-wider">
-                          Group Meet Link
-                        </span>
+                  {(() => {
+                    const activeMeet = getActiveGroupMeetLink(group);
+                    return (
+                      <div className="bg-white/60 rounded-xl p-2.5 mt-auto border border-white/50">
+                        <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
+                          <div className="flex items-center space-x-1.5">
+                            <VideoIcon className="w-2.5 h-2.5 text-primary" />
+                            <span className="text-[9px] text-secondary/60 uppercase tracking-wider">
+                              {activeMeet.status === 'active'
+                                ? 'Active Slot Link'
+                                : activeMeet.status === 'upcoming'
+                                  ? 'Upcoming Slot Link'
+                                  : 'Meeting Link'}
+                            </span>
+                          </div>
+                          {activeMeet.status === 'active' && (
+                            <span className="text-[8px] bg-red-500/10 text-red-500 font-bold px-1 py-0.5 rounded animate-pulse truncate max-w-[120px]">
+                              Live: {activeMeet.candidateName}
+                            </span>
+                          )}
+                          {activeMeet.status === 'upcoming' && (
+                            <span className="text-[8px] bg-primary/10 text-primary font-bold px-1 py-0.5 rounded truncate max-w-[120px]" title={activeMeet.timeInfo}>
+                              Next: {activeMeet.candidateName}
+                            </span>
+                          )}
+                        </div>
+                        {activeMeet.link ? (
+                          <div className="flex items-center justify-between gap-1.5 mt-1">
+                            <div className="flex flex-col min-w-0 flex-grow">
+                              <code className="text-[10px] text-primary font-mono truncate" title={activeMeet.link}>
+                                {activeMeet.link.replace('https://', '')}
+                              </code>
+                              {activeMeet.status === 'upcoming' && (
+                                <span className="text-[8px] text-secondary/50 font-medium truncate">
+                                  {activeMeet.timeInfo}
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => copyLink(activeMeet.link!)}
+                              className="p-1 hover:bg-white/60 rounded-lg transition-colors flex-shrink-0"
+                              title="Copy meet link"
+                            >
+                              <CopyIcon className="w-2.5 h-2.5 text-secondary/60" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-[9px] text-secondary/50 py-1 font-medium italic">
+                            No schedule for current time slot
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center justify-between gap-1.5">
-                        <code className="text-[10px] text-primary font-mono truncate flex-grow">
-                          {group.meet_link.replace('https://', '')}
-                        </code>
-                        <button
-                          onClick={() => copyLink(group.meet_link)}
-                          className="p-1 hover:bg-white/60 rounded-lg transition-colors flex-shrink-0"
-                          title="Copy meet link"
-                        >
-                          <CopyIcon className="w-2.5 h-2.5 text-secondary/60" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </GlassCard>
               </motion.div>
             );
@@ -710,13 +872,12 @@ export function AdminPanels() {
                                 )
                               )
                             }
-                            className={`aspect-square rounded-xl p-1.5 text-left transition-all relative ${
-                              isSelected
-                                ? 'bg-primary text-white shadow-glass'
-                                : has
+                            className={`aspect-square rounded-xl p-1.5 text-left transition-all relative ${isSelected
+                              ? 'bg-primary text-white shadow-glass'
+                              : has
                                 ? 'bg-primary/10 text-secondary hover:bg-primary/20'
                                 : 'bg-white/40 text-secondary/70 hover:bg-white/60'
-                            }`}
+                              }`}
                           >
                             <div className="text-xs font-semibold">{day}</div>
                             {has && (
@@ -724,9 +885,8 @@ export function AdminPanels() {
                                 {dayInts.slice(0, 3).map((_, i) => (
                                   <div
                                     key={i}
-                                    className={`w-1 h-1 rounded-full ${
-                                      isSelected ? 'bg-white' : 'bg-primary'
-                                    }`}
+                                    className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-primary'
+                                      }`}
                                   />
                                 ))}
                               </div>
@@ -827,11 +987,15 @@ export function AdminPanels() {
                                     </>
                                   )}
                                 </div>
-                                {s.mode === 'Online' && selectedGroup?.meet_link && (
+                                {s.mode === 'Online' && s.meetLink && (
                                   <button
                                     onClick={() => {
+                                      const link = s.meetLink || '';
+                                      const formattedLink = link.startsWith('http://') || link.startsWith('https://')
+                                        ? link
+                                        : `https://${link}`;
                                       window.open(
-                                        selectedGroup.meet_link,
+                                        formattedLink,
                                         '_blank',
                                         'noopener,noreferrer'
                                       );
@@ -923,7 +1087,7 @@ export function AdminPanels() {
             <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
               Select Panelist to Add
             </label>
-            <select 
+            <select
               value={selectedPanelistId}
               onChange={(e) => setSelectedPanelistId(e.target.value)}
               className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50"

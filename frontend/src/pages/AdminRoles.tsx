@@ -12,8 +12,9 @@ import {
   PlusIcon,
   MapPinIcon,
   ClockIcon,
-  UsersIcon } from
-'lucide-react';
+  UsersIcon
+} from
+  'lucide-react';
 import { API_BASE_URL } from '../config';
 import { type JobRole } from '../data/jobRoles';
 
@@ -132,7 +133,7 @@ export function AdminRoles() {
           y: 0
         }}
         className="mb-6">
-        
+
         <h1 className="text-2xl font-bold text-secondary mb-1">Job Roles</h1>
         {/* <p className="text-xs text-secondary/70">
           Create and manage open roles. Candidates see these on their dashboard
@@ -153,7 +154,7 @@ export function AdminRoles() {
         transition={{
           delay: 0.05
         }}>
-        
+
         <GlassCard className="p-5 mb-6">
           <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/60">
             <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -177,19 +178,19 @@ export function AdminRoles() {
                 placeholder="e.g. Senior Backend Engineer"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)} />
-              
+
               <Input
                 label="Location"
                 placeholder="e.g. Bangalore, India"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)} />
-              
+
               <Input
                 label="Experience"
                 placeholder="e.g. 3-5 years"
                 value={experience}
                 onChange={(e) => setExperience(e.target.value)} />
-              
+
               <Input
                 label="Total Vacancy"
                 type="number"
@@ -197,40 +198,40 @@ export function AdminRoles() {
                 placeholder="e.g. 5"
                 value={totalVacancy}
                 onChange={(e) => setTotalVacancy(e.target.value)} />
-              
-                  <div>
-                    <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
-                      Job Type
-                    </label>
-                    <select
-                      value={jobType}
-                      onChange={(e) => setJobType(e.target.value as 'Online' | 'Offline')}
-                      className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer">
-                      <option value="Online">Online</option>
-                      <option value="Offline">Offline</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
-                      Interview Level
-                    </label>
-                    <select
-                      value={level}
-                      onChange={(e) => setLevel(e.target.value)}
-                      className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer">
-                      {Array.from({ length: 10 }, (_, i) => `L${i + 1}`).map((lvl) => (
-                        <option key={lvl} value={lvl}>{lvl}</option>
-                      ))}
-                    </select>
-                  </div>
+
+              <div>
+                <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
+                  Job Type
+                </label>
+                <select
+                  value={jobType}
+                  onChange={(e) => setJobType(e.target.value as 'Online' | 'Offline')}
+                  className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer">
+                  <option value="Online">Online</option>
+                  <option value="Offline">Offline</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
+                  Interview Level
+                </label>
+                <select
+                  value={level}
+                  onChange={(e) => setLevel(e.target.value)}
+                  className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer">
+                  {Array.from({ length: 10 }, (_, i) => `L${i + 1}`).map((lvl) => (
+                    <option key={lvl} value={lvl}>{lvl}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-                {jobType === 'Offline' && (
-                <Input
-                  label="Venue"
-                  placeholder="e.g. Building 5, Room 203"
-                  value={venue}
-                  onChange={(e) => setVenue(e.target.value)} />
-                )}
+            {jobType === 'Offline' && (
+              <Input
+                label="Venue"
+                placeholder="e.g. Building 5, Room 203"
+                value={venue}
+                onChange={(e) => setVenue(e.target.value)} />
+            )}
             <div>
               <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
                 Description (optional)
@@ -241,7 +242,7 @@ export function AdminRoles() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary placeholder:text-neutral/50 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
-              
+
             </div>
             <div className="flex justify-end">
               <Button type="submit">
@@ -266,7 +267,7 @@ export function AdminRoles() {
         transition={{
           delay: 0.1
         }}>
-        
+
         <div className="flex items-center justify-between mb-3 px-1">
           <h2 className="text-sm font-semibold text-secondary">
             All Roles
@@ -292,7 +293,7 @@ export function AdminRoles() {
             </div>
           ) :
 
-          <div className="overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-white/40 border-b border-white/60">
@@ -328,60 +329,60 @@ export function AdminRoles() {
                 <tbody>
                   <AnimatePresence>
                     {roles.map((role) =>
-                  <motion.tr
-                    key={role.id}
-                    layout
-                    initial={{
-                      opacity: 0,
-                      y: -4
-                    }}
-                    animate={{
-                      opacity: 1,
-                      y: 0
-                    }}
-                    exit={{
-                      opacity: 0,
-                      y: -4
-                    }}
-                    transition={{
-                      duration: 0.15
-                    }}
-                    className="border-b border-white/40 last:border-b-0 hover:bg-white/40 transition-colors">
-                    
+                      <motion.tr
+                        key={role.id}
+                        layout
+                        initial={{
+                          opacity: 0,
+                          y: -4
+                        }}
+                        animate={{
+                          opacity: 1,
+                          y: 0
+                        }}
+                        exit={{
+                          opacity: 0,
+                          y: -4
+                        }}
+                        transition={{
+                          duration: 0.15
+                        }}
+                        className="border-b border-white/40 last:border-b-0 hover:bg-white/40 transition-colors">
+
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
                               <BriefcaseIcon className="w-3.5 h-3.5 text-primary" />
                             </div>
-                            <span className="text-[13px] font-medium text-secondary">
+                            <span className="text-[13px] font-medium text-white">
                               {role.title}
                             </span>
                           </div>
                         </td>
                         <td className="px-5 py-3">
-                          <div className="flex items-center gap-1.5 text-[12px] text-secondary/80">
-                            <MapPinIcon className="w-3 h-3 text-secondary/50" />
+                          <div className="flex items-center gap-1.5 text-[12px] text-white/80">
+                            <MapPinIcon className="w-3 h-3 text-white/50" />
                             {role.location}
                           </div>
                         </td>
                         <td className="px-5 py-3">
-                          <div className="flex items-center gap-1.5 text-[12px] text-secondary/80">
-                            <ClockIcon className="w-3 h-3 text-secondary/50" />
+                          <div className="flex items-center gap-1.5 text-[12px] text-white/80">
+                            <ClockIcon className="w-3 h-3 text-white/50" />
                             {role.experience}
                           </div>
                         </td>
-                        <td className="px-5 py-3 text-[12px] text-slate-700">
+                        <td className="px-5 py-3 text-[12px] text-white/80">
                           {role.jobType}
                         </td>
-                        <td className="px-5 py-3 text-[12px] text-slate-700 font-semibold">
+                        <td className="px-5 py-3 text-[12px] font-semibold text-white/80">
                           {role.level || '—'}
                         </td>
-                        <td className="px-5 py-3 text-[12px] text-slate-700">
+                        <td className="px-5 py-3 text-[12px] text-white/80">
                           {role.venue || '—'}
                         </td>
                         <td className="px-5 py-3">
                           <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 border border-primary/20 rounded-full">
-                            <UsersIcon className="w-3 h-3 text-primary" />
+                            <UsersIcon className="w-3 h-3 text-white" />
                             <span className="text-[11px] font-semibold text-primary">
                               {role.totalVacancy}
                             </span>
@@ -393,11 +394,10 @@ export function AdminRoles() {
                         <td className="px-5 py-3 text-right">
                           <button
                             onClick={() => handleToggleVisibility(role.id, !!role.isVisible)}
-                            className={`p-1.5 rounded-lg transition-colors inline-flex ${
-                              role.isVisible 
-                                ? 'hover:bg-green-50 text-emerald-600' 
-                                : 'hover:bg-slate-100 text-slate-400'
-                            }`}
+                            className={`p-1.5 rounded-lg transition-colors inline-flex ${role.isVisible
+                              ? 'hover:bg-green-50 text-emerald-600'
+                              : 'hover:bg-slate-100 text-slate-400'
+                              }`}
                             title={role.isVisible ? 'Hide from candidates' : 'Show to candidates'}
                           >
                             {role.isVisible ? (
@@ -408,7 +408,7 @@ export function AdminRoles() {
                           </button>
                         </td>
                       </motion.tr>
-                  )}
+                    )}
                   </AnimatePresence>
                 </tbody>
               </table>

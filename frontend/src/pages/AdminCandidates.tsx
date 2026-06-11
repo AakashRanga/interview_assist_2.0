@@ -13,8 +13,9 @@ import { API_BASE_URL } from '../config';
 import {
   mockPanels,
   mockPanelGroups,
-  Candidate } from
-'../data/mockData';
+  Candidate
+} from
+  '../data/mockData';
 import {
   SearchIcon,
   UsersIcon,
@@ -24,8 +25,29 @@ import {
   MoreVerticalIcon,
   DownloadIcon,
   UploadIcon,
-  CalendarIcon } from
-'lucide-react';
+  CalendarIcon
+} from
+  'lucide-react';
+
+const convertTo24Hour = (timeStr: string): string => {
+  if (!timeStr) return '';
+  const trimmed = timeStr.trim();
+  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+    const parts = trimmed.split(':');
+    return `${parts[0].padStart(2, '0')}:${parts[1]}`;
+  }
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+  if (!match) return '';
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  const ampm = match[3].toUpperCase();
+  if (ampm === 'PM' && hours < 12) {
+    hours += 12;
+  } else if (ampm === 'AM' && hours === 12) {
+    hours = 0;
+  }
+  return `${String(hours).padStart(2, '0')}:${minutes}`;
+};
 
 export function AdminCandidates() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -55,6 +77,7 @@ export function AdminCandidates() {
   const [schedStartTime, setSchedStartTime] = useState('');
   const [schedEndTime, setSchedEndTime] = useState('');
   const [schedMode, setSchedMode] = useState('Online');
+  const [schedVenue, setSchedVenue] = useState('');
   const [schedLevel, setSchedLevel] = useState('Level 1');
   const [completedLevels, setCompletedLevels] = useState<string[]>([]);
   const [busyPanelIds, setBusyPanelIds] = useState<string[]>([]);
@@ -133,13 +156,13 @@ export function AdminCandidates() {
     setOpenMenu(null);
     if (action === 'reschedule') {
       setNewDate(candidate.interviewDate ? candidate.interviewDate.split('T')[0] : '');
-      setNewTime(candidate.interviewTime ? candidate.interviewTime.split(' - ')[0] : '');
+      setNewTime(candidate.interviewTime ? convertTo24Hour(candidate.interviewTime.split(' - ')[0]) : '');
       setRescheduleOpen(true);
     }
     if (action === 'reassign') {
       const initialGroupId = candidate.panelGroupId || String(dbPanelGroups[0]?.id || '');
       setSelectedPanelGroupId(initialGroupId);
-      
+
       let initialIds: string[] = [];
       if (candidate.panelId) {
         if (candidate.panelId.startsWith('[')) {
@@ -154,19 +177,19 @@ export function AdminCandidates() {
       }
       setSelectedPanelIds(initialIds);
       setBusyPanelIds([]);
-      
+
       if (candidate.interviewDate && candidate.interviewTime) {
         const timeParts = candidate.interviewTime.split(' - ');
         const startTimeStr = timeParts[0];
         const endTimeStr = timeParts[1] || timeParts[0];
         const dateStr = candidate.interviewDate.split('T')[0];
-        
+
         const params = new URLSearchParams({
           date_str: dateStr,
           start_time_str: startTimeStr,
           end_time_str: endTimeStr
         });
-        
+
         fetch(`${API_BASE_URL}/admin/panels/busy?${params.toString()}`)
           .then(res => res.json())
           .then(data => {
@@ -183,10 +206,19 @@ export function AdminCandidates() {
     }
     if (action === 'schedule') {
       setSchedDate(candidate.interviewDate ? candidate.interviewDate.split('T')[0] : '');
-      setSchedStartTime('');
-      setSchedEndTime('');
+
+      let startTime = '';
+      let endTime = '';
+      if (candidate.interviewTime) {
+        const parts = candidate.interviewTime.split(' - ');
+        if (parts[0]) startTime = convertTo24Hour(parts[0]);
+        if (parts[1]) endTime = convertTo24Hour(parts[1]);
+      }
+      setSchedStartTime(startTime);
+      setSchedEndTime(endTime);
       setSchedMode(candidate.mode || 'Online');
-      
+      setSchedVenue(candidate.venue || '');
+
       // Fetch level info
       fetch(`${API_BASE_URL}/admin/candidates/${candidate.id}/next-level-info`)
         .then((res) => {
@@ -278,7 +310,8 @@ export function AdminCandidates() {
           start_time: schedStartTime,
           end_time: schedEndTime,
           interview_mode: schedMode,
-          interview_level: schedLevel
+          interview_level: schedLevel,
+          venue: schedMode === 'Offline' ? schedVenue : undefined
         }),
       });
       if (!res.ok) {
@@ -296,22 +329,22 @@ export function AdminCandidates() {
   const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     const formData = new FormData();
     formData.append('file', file);
-    
+
     const toastId = toast.loading('Uploading candidates selection list...');
     try {
       const res = await fetch(`${API_BASE_URL}/admin/candidates/import-selected`, {
         method: 'POST',
         body: formData,
       });
-      
+
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.detail || 'Failed to upload selected candidates');
       }
-      
+
       const data = await res.json();
       toast.dismiss(toastId);
       if (data.status === 'success') {
@@ -374,7 +407,7 @@ export function AdminCandidates() {
     try {
       const url = `${API_BASE_URL}/admin/candidates/export-excel?${params.toString()}`;
       const response = await fetch(url);
-      
+
       if (!response.ok) {
         throw new Error('Failed to generate Excel download');
       }
@@ -383,7 +416,7 @@ export function AdminCandidates() {
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      
+
       const filename = `candidates_export_${new Date().toISOString().slice(0, 10)}.xlsx`;
       link.setAttribute('download', filename);
       link.style.visibility = 'hidden';
@@ -391,7 +424,7 @@ export function AdminCandidates() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(downloadUrl);
-      
+
       toast.dismiss(toastId);
       toast.success('Excel downloaded successfully');
     } catch (err: any) {
@@ -430,7 +463,7 @@ export function AdminCandidates() {
           y: 0
         }}
         className="mb-6">
-        
+
         <h1 className="text-2xl font-bold text-secondary mb-1">
           Candidate Management
         </h1>
@@ -442,78 +475,78 @@ export function AdminCandidates() {
       {/* Summary stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {[
-        {
-          label: 'Total',
-          value: counts.total,
-          icon: UsersIcon,
-          color: 'primary'
-        },
-        {
-          label: 'Selected',
-          value: counts.selected,
-          icon: CheckCircleIcon,
-          color: 'green'
-        },
-        {
-          label: 'Scheduled',
-          value: counts.scheduled,
-          icon: ClockIcon,
-          color: 'cyan'
-        },
-        {
-          label: 'Completed',
-          value: counts.completed,
-          icon: CheckCircleIcon,
-          color: 'indigo'
-        },
-        {
-          label: 'Rejected',
-          value: counts.rejected,
-          icon: XCircleIcon,
-          color: 'red'
-        }].
-        map((s, i) => {
-          const Icon = s.icon;
-          const colorMap: Record<string, string> = {
-            primary: 'bg-primary/10 text-primary border-primary/20',
-            green: 'bg-green-500/10 text-green-600 border-green-500/20',
-            cyan: 'bg-cyan/10 text-cyan border-cyan/20',
-            indigo: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20',
-            red: 'bg-red-500/10 text-red-600 border-red-500/20'
-          };
-          return (
-            <motion.div
-              key={s.label}
-              initial={{
-                opacity: 0,
-                y: 10
-              }}
-              animate={{
-                opacity: 1,
-                y: 0
-              }}
-              transition={{
-                delay: i * 0.05
-              }}>
-              
-              <GlassCard className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div
-                    className={`w-9 h-9 rounded-lg border flex items-center justify-center ${colorMap[s.color]}`}>
-                    
-                    <Icon className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="text-2xl font-bold text-secondary">
-                  {s.value}
-                </div>
-                <div className="text-[10px] text-secondary/60 uppercase tracking-wider">
-                  {s.label}
-                </div>
-              </GlassCard>
-            </motion.div>);
+          {
+            label: 'Total',
+            value: counts.total,
+            icon: UsersIcon,
+            color: 'primary'
+          },
+          {
+            label: 'Selected',
+            value: counts.selected,
+            icon: CheckCircleIcon,
+            color: 'green'
+          },
+          {
+            label: 'Scheduled',
+            value: counts.scheduled,
+            icon: ClockIcon,
+            color: 'cyan'
+          },
+          {
+            label: 'Completed',
+            value: counts.completed,
+            icon: CheckCircleIcon,
+            color: 'indigo'
+          },
+          {
+            label: 'Rejected',
+            value: counts.rejected,
+            icon: XCircleIcon,
+            color: 'red'
+          }].
+          map((s, i) => {
+            const Icon = s.icon;
+            const colorMap: Record<string, string> = {
+              primary: 'bg-primary/10 text-primary border-primary/20',
+              green: 'bg-green-500/10 text-green-600 border-green-500/20',
+              cyan: 'bg-cyan/10 text-cyan border-cyan/20',
+              indigo: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20',
+              red: 'bg-red-500/10 text-red-600 border-red-500/20'
+            };
+            return (
+              <motion.div
+                key={s.label}
+                initial={{
+                  opacity: 0,
+                  y: 10
+                }}
+                animate={{
+                  opacity: 1,
+                  y: 0
+                }}
+                transition={{
+                  delay: i * 0.05
+                }}>
 
-        })}
+                <GlassCard className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div
+                      className={`w-9 h-9 rounded-lg border flex items-center justify-center ${colorMap[s.color]}`}>
+
+                      <Icon className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-secondary">
+                    {s.value}
+                  </div>
+                  <div className="text-[10px] text-secondary/60 uppercase tracking-wider">
+                    {s.label}
+                  </div>
+                </GlassCard>
+              </motion.div>);
+
+          })}
       </div>
 
       {/* Filters */}
@@ -530,7 +563,7 @@ export function AdminCandidates() {
           delay: 0.2
         }}
         className="mb-4">
-        
+
         <GlassCard className="p-4">
           <div className="flex flex-wrap gap-3 items-center">
             <div className="relative flex-grow min-w-[200px]">
@@ -541,15 +574,15 @@ export function AdminCandidates() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary placeholder:text-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/50" />
-              
+
             </div>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50">
-              
+
               {statuses.map((s) =>
-              <option key={s} value={s}>
+                <option key={s} value={s}>
                   {s === 'all' ? 'All Statuses' : s}
                 </option>
               )}
@@ -558,10 +591,10 @@ export function AdminCandidates() {
               value={groupFilter}
               onChange={(e) => setGroupFilter(e.target.value)}
               className="px-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50">
-              
+
               <option value="all">All Panels</option>
               {dbPanelGroups.map((g) =>
-              <option key={g.id} value={String(g.id)}>
+                <option key={g.id} value={String(g.id)}>
                   {g.name}
                 </option>
               )}
@@ -606,7 +639,7 @@ export function AdminCandidates() {
         transition={{
           delay: 0.25
         }}>
-        
+
         <GlassCard className="overflow-visible">
           <div className="overflow-x-auto min-h-[280px] pb-12">
             <table className="w-full">
@@ -665,14 +698,14 @@ export function AdminCandidates() {
                           delay: i * 0.02
                         }}
                         className="border-b border-white/40 hover:bg-white/30 transition-colors">
-                        
+
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2.5">
                             <img
                               src={c.avatar}
                               alt={c.name}
                               className="w-8 h-8 rounded-full" />
-                            
+
                             <div>
                               <div className="text-xs font-medium text-secondary">
                                 {c.name}
@@ -703,13 +736,13 @@ export function AdminCandidates() {
                               } else {
                                 parsedIds = c.panelId.split(',').map(s => s.trim());
                               }
-                              
+
                               const names = parsedIds.map(pid => {
                                 const dbPanel = dbPanels.find(p => String(p.id) === String(pid));
                                 if (dbPanel) return `${dbPanel.name} (ID: ${dbPanel.id})`;
                                 return pid;
                               });
-                              
+
                               if (names.length > 0) {
                                 return names.join(', ');
                               }
@@ -728,18 +761,18 @@ export function AdminCandidates() {
                         <td className="px-4 py-3">
                           <Badge
                             variant={
-                            c.status === 'Selected' ?
-                            'success' :
-                            c.status === 'Rejected' ?
-                            'danger' :
-                            c.status === 'Completed' ?
-                            'info' :
-                            c.status === 'Scheduled' ?
-                            'primary' :
-                            'neutral'
+                              c.status === 'Selected' ?
+                                'success' :
+                                c.status === 'Rejected' ?
+                                  'danger' :
+                                  c.status === 'Completed' ?
+                                    'info' :
+                                    c.status === 'Scheduled' ?
+                                      'primary' :
+                                      'neutral'
                             }
                             size="sm">
-                            
+
                             {c.status}
                           </Badge>
                         </td>
@@ -761,11 +794,11 @@ export function AdminCandidates() {
                               }
                             }}
                             className="p-1.5 hover:bg-white/60 rounded-lg transition-colors">
-                            
+
                             <MoreVerticalIcon className="w-4 h-4 text-secondary" />
                           </button>
                         </td>
-                    </motion.tr>);
+                      </motion.tr>);
 
                   })
                 )}
@@ -781,17 +814,17 @@ export function AdminCandidates() {
         onClose={() => setRescheduleOpen(false)}
         title={`Reschedule ${selectedCandidate?.name ?? ''}`}
         size="md">
-        
+
         <div className="space-y-4">
-          <Input 
-            type="date" 
-            label="New Date" 
+          <Input
+            type="date"
+            label="New Date"
             value={newDate}
             onChange={(e) => setNewDate(e.target.value)}
           />
-          <Input 
-            type="time" 
-            label="New Time" 
+          <Input
+            type="time"
+            label="New Time"
             value={newTime}
             onChange={(e) => setNewTime(e.target.value)}
           />
@@ -799,14 +832,14 @@ export function AdminCandidates() {
             <Button
               className="flex-grow"
               onClick={handleConfirmReschedule}>
-              
+
               Confirm
             </Button>
             <Button
               variant="outline"
               className="flex-grow"
               onClick={() => setRescheduleOpen(false)}>
-              
+
               Cancel
             </Button>
           </div>
@@ -819,13 +852,13 @@ export function AdminCandidates() {
         onClose={() => setReassignOpen(false)}
         title={`Assign Panel to ${selectedCandidate?.name ?? ''}`}
         size="md">
-        
+
         <div className="space-y-4">
           <div>
             <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
               Select Panel Group
             </label>
-            <select 
+            <select
               value={selectedPanelGroupId}
               onChange={(e) => {
                 setSelectedPanelGroupId(e.target.value);
@@ -841,7 +874,7 @@ export function AdminCandidates() {
               )}
             </select>
           </div>
- 
+
           <div>
             <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
               Select Panelist Category (Name, ID & Availability)
@@ -856,21 +889,20 @@ export function AdminCandidates() {
                   const isBusy = busyPanelIds.includes(String(p.id));
                   const isSelected = selectedPanelIds.includes(String(p.id));
                   return (
-                    <div 
+                    <div
                       key={p.id}
                       onClick={() => {
                         const pid = String(p.id);
-                        setSelectedPanelIds(prev => 
+                        setSelectedPanelIds(prev =>
                           prev.includes(pid)
                             ? prev.filter(id => id !== pid)
                             : [...prev, pid]
                         );
                       }}
-                      className={`flex items-center justify-between p-3 rounded-xl cursor-pointer border transition-all ${
-                        isSelected 
-                          ? 'bg-primary/20 border-primary/60 shadow-glass' 
-                          : 'bg-white/50 border-white/60 hover:bg-white/80'
-                      }`}
+                      className={`flex items-center justify-between p-3 rounded-xl cursor-pointer border transition-all ${isSelected
+                        ? 'bg-primary/20 border-primary/60 shadow-glass'
+                        : 'bg-white/50 border-white/60 hover:bg-white/80'
+                        }`}
                     >
                       <div className="flex flex-col">
                         <span className="text-xs font-semibold text-secondary">
@@ -880,7 +912,7 @@ export function AdminCandidates() {
                           ID: {p.id} • {p.interview_type || 'General'}
                         </span>
                       </div>
-                      <Badge 
+                      <Badge
                         variant={isBusy ? 'danger' : 'success'}
                         size="sm"
                       >
@@ -899,14 +931,14 @@ export function AdminCandidates() {
             <Button
               className="flex-grow"
               onClick={handleConfirmReassign}>
-              
+
               Assign Panel
             </Button>
             <Button
               variant="outline"
               className="flex-grow"
               onClick={() => setReassignOpen(false)}>
-              
+
               Cancel
             </Button>
           </div>
@@ -919,7 +951,7 @@ export function AdminCandidates() {
         onClose={() => setScheduleManualOpen(false)}
         title={`Schedule Interview Slot - ${selectedCandidate?.name ?? ''}`}
         size="md">
-        
+
         <div className="space-y-4">
           <div className="p-3 bg-primary/5 rounded-xl border border-primary/10">
             <p className="text-[10px] text-primary font-semibold uppercase tracking-wider mb-1">Detected Interview Level</p>
@@ -928,28 +960,28 @@ export function AdminCandidates() {
               <p className="text-[9px] text-secondary/50 mt-1">Completed rounds: {completedLevels.join(', ')}</p>
             )}
           </div>
-          
-          <Input 
-            type="date" 
-            label="Date" 
+
+          <Input
+            type="date"
+            label="Date"
             value={schedDate}
             onChange={(e) => setSchedDate(e.target.value)}
           />
           <div className="grid grid-cols-2 gap-3">
-            <Input 
-              type="time" 
-              label="Start Time" 
+            <Input
+              type="time"
+              label="Start Time"
               value={schedStartTime}
               onChange={(e) => setSchedStartTime(e.target.value)}
             />
-            <Input 
-              type="time" 
-              label="End Time" 
+            <Input
+              type="time"
+              label="End Time"
               value={schedEndTime}
               onChange={(e) => setSchedEndTime(e.target.value)}
             />
           </div>
-          
+
           <div>
             <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
               Interview Mode
@@ -960,18 +992,27 @@ export function AdminCandidates() {
                   key={m}
                   type="button"
                   onClick={() => setSchedMode(m)}
-                  className={`flex-grow py-2 text-xs font-semibold rounded-xl border transition-all ${
-                    schedMode === m 
-                      ? 'bg-primary border-primary text-white shadow-md shadow-primary/20' 
-                      : 'bg-white border-white/60 text-secondary hover:bg-slate-50'
-                  }`}
+                  className={`flex-grow py-2 text-xs font-semibold rounded-xl border transition-all ${schedMode === m
+                    ? 'bg-primary border-primary text-white shadow-md shadow-primary/20'
+                    : 'bg-secondary border-white/60 text-white hover:bg-secondary-50'
+                    }`}
                 >
                   {m}
                 </button>
               ))}
             </div>
           </div>
-          
+
+          {schedMode === 'Offline' && (
+            <Input
+              type="text"
+              label="Venue"
+              placeholder="Enter interview venue/room details..."
+              value={schedVenue}
+              onChange={(e) => setSchedVenue(e.target.value)}
+            />
+          )}
+
           <div className="flex space-x-3 mt-6">
             <Button
               className="flex-grow"
@@ -1060,7 +1101,7 @@ export function AdminCandidates() {
         </div>,
         document.body
       )}
-      
+
     </DashboardLayout>
   );
 }

@@ -47,9 +47,14 @@ export function AdminSchedule() {
   [];
   const handleJoin = (panelId: string) => {
     const cat = mockPanels.find((p) => p.id === panelId);
-    if (cat) {
+    if (cat && cat.meetLink && cat.meetLink.trim() !== '') {
       toast.success('Opening meeting...');
-      window.open(cat.meetLink, '_blank', 'noopener,noreferrer');
+      const formattedLink = cat.meetLink.startsWith('http://') || cat.meetLink.startsWith('https://')
+        ? cat.meetLink
+        : `https://${cat.meetLink}`;
+      window.open(formattedLink, '_blank', 'noopener,noreferrer');
+    } else {
+      toast.error('No meeting link available');
     }
   };
   return (

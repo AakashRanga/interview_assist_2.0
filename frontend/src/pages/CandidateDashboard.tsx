@@ -146,9 +146,12 @@ export function CandidateDashboard() {
     }
   }, []);
 
-  const meetLink = dashboardData?.interview_schedule?.gmeet_link ?? '';
-  const venueAddress = dashboardData?.interview_schedule?.venue ?? dashboardData?.latest_application?.venue ?? '';
-  const isOnline = dashboardData?.latest_application?.job_type === 'Online' || dashboardData?.latest_application?.job_type === 'online';
+  const interviewSchedule = dashboardData?.interview_schedule;
+  const meetLink = interviewSchedule?.gmeet_link ?? '';
+  const venueAddress = interviewSchedule?.venue ?? dashboardData?.latest_application?.venue ?? '';
+  const isOnline = interviewSchedule?.job_type
+    ? (interviewSchedule.job_type === 'Online' || interviewSchedule.job_type === 'online')
+    : (dashboardData?.latest_application?.job_type === 'Online' || dashboardData?.latest_application?.job_type === 'online');
   const isOffline = !isOnline;
   const hasApplied = dashboardData?.applications?.length > 0;
   const applicationStatus = dashboardData?.latest_application?.status ?? '';
@@ -164,12 +167,15 @@ export function CandidateDashboard() {
       navigator.clipboard.writeText(venueAddress);
       return;
     }
-    if (!meetLink) {
+    if (!meetLink || meetLink.trim() === '') {
       toast.error('No meeting link available');
       return;
     }
     toast.success('Opening Google Meet...');
-    window.open(meetLink, '_blank', 'noopener,noreferrer');
+    const formattedLink = meetLink.startsWith('http://') || meetLink.startsWith('https://')
+      ? meetLink
+      : `https://${meetLink}`;
+    window.open(formattedLink, '_blank', 'noopener,noreferrer');
   };
 
   const handleCopyLink = () => {
@@ -380,7 +386,7 @@ export function CandidateDashboard() {
                         </div>
                         <div className="text-xs font-medium text-secondary flex items-center gap-1">
                           {isOnline ? <VideoIcon className="w-3 h-3" /> : <MapPinIcon className="w-3 h-3" />}
-                          {dashboardData?.latest_application?.job_type ?? 'N/A'}
+                          {interviewSchedule?.job_type ?? dashboardData?.latest_application?.job_type ?? 'N/A'}
                         </div>
                       </div>
                     </div>

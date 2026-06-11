@@ -66,6 +66,7 @@ const formatIndiaTime = (timestamp: string) => {
 export function PanelNotifications() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userName, setUserName] = useState('Sarah Johnson');
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   useEffect(() => {
@@ -128,6 +129,7 @@ export function PanelNotifications() {
         setLoading(false);
         return;
       }
+      setUserName(user.full_name || 'Sarah Johnson');
 
       fetch(`${API_BASE_URL}/user/${user.id}/notifications?limit=50&offset=0`)
         .then((res) => res.json())
@@ -146,7 +148,7 @@ export function PanelNotifications() {
     <DashboardLayout
       role="panel"
       title="Notifications"
-      userName="Sarah Johnson">
+      userName={userName}>
       
       <motion.div
         initial={{

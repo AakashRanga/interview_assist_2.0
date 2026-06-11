@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { DashboardLayout } from '../components/dashboard/DashboardLayout';
 import { StatCard } from '../components/dashboard/StatCard';
@@ -7,16 +7,7 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
-import {
-  mockCandidates,
-  mockPanels,
-  mockPanelGroups,
-  pipelineData,
-  interviewsOverTime,
-  statusBreakdown,
-  mockActivities,
-  PanelCategory } from
-'../data/mockData';
+import { API_BASE_URL } from '../config';
 import {
   UsersIcon,
   CalendarIcon,
@@ -43,20 +34,197 @@ import {
   ResponsiveContainer } from
 'recharts';
 import { toast } from 'sonner';
+
 export function AdminDashboard() {
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [managePanelOpen, setManagePanelOpen] = useState(false);
-  const [managedPanel, setManagedPanel] = useState<PanelCategory | null>(null);
-  const handleManage = (panel: PanelCategory) => {
+  const [managedPanel, setManagedPanel] = useState<any | null>(null);
+  
+  const [candidates, setCandidates] = useState<any[]>([]);
+  const [panelGroups, setPanelGroups] = useState<any[]>([]);
+  const [dbPanels, setDbPanels] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [candRes, groupsRes, panelsRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/admin/candidates`),
+          fetch(`${API_BASE_URL}/admin/panel-groups`),
+          fetch(`${API_BASE_URL}/admin/panels`)
+        ]);
+        
+        if (candRes.ok) {
+          const candData = await candRes.json();
+          setCandidates(candData);
+        }
+        if (groupsRes.ok) {
+          const groupsData = await groupsRes.json();
+          setPanelGroups(groupsData);
+        }
+        if (panelsRes.ok) {
+          const panelsData = await panelsRes.json();
+          setDbPanels(panelsData);
+        }
+      } catch (err) {
+        console.error("Failed to fetch dashboard data", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, []);
+
+  const counts = useMemo(() => {
+    const total = candidates.length;
+    const scheduled = candidates.filter(c => c.status === 'Scheduled').length;
+    const selected = candidates.filter(c => c.status === 'Selected').length;
+    const completed = candidates.filter(c => c.status === 'Completed').length;
+    const rejected = candidates.filter(c => c.status === 'Rejected').length;
+    const successRate = total > 0 
+      ? Math.round(((selected + completed) / (selected + completed + rejected || 1)) * 100) 
+      : 0;
+    const hired = selected + completed;
+    
+    return { total, scheduled, successRate, hired };
+  }, [candidates]);
+
+  const pipelineData = useMemo(() => {
+    return [
+      { stage: 'Applied', count: candidates.filter(c => c.status === 'Applied').length },
+      { stage: 'Scheduled', count: candidates.filter(c => c.status === 'Scheduled').length },
+      { stage: 'Completed', count: candidates.filter(c => c.status === 'Completed').length },
+      { stage: 'Selected', count: candidates.filter(c => c.status === 'Selected').length },
+      { stage: 'Rejected', count: candidates.filter(c => c.status === 'Rejected').length }
+    ];
+  }, [candidates]);
+
+  const interviewsOverTime = useMemo(() => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const countsArray = Array(12).fill(0);
+    
+    candidates.forEach(c => {
+      if (c.interviewDate) {
+        const date = new Date(c.interviewDate);
+        if (!isNaN(date.getTime())) {
+          countsArray[date.getMonth()] += 1;
+        }
+      }
+    });
+    
+    return months.map((m, i) => ({
+      date: m,
+      count: countsArray[i]
+    }));
+  }, [candidates]);
+
+  const statusBreakdown = useMemo(() => {
+    return [
+      { name: 'Scheduled', value: candidates.filter(c => c.status === 'Scheduled').length, color: '#7C3AED' },
+      { name: 'Completed', value: candidates.filter(c => c.status === 'Completed').length, color: '#06B6D4' },
+      { name: 'Selected', value: candidates.filter(c => c.status === 'Selected').length, color: '#10B981' },
+      { name: 'Applied', value: candidates.filter(c => c.status === 'Applied').length, color: '#F59E0B' },
+      { name: 'Rejected', value: candidates.filter(c => c.status === 'Rejected').length, color: '#EF4444' }
+    ];
+  }, [candidates]);
+
+  const recentCandidates = useMemo(() => {
+    return [...candidates]
+      .sort((a, b) => new Date(b.appliedDate || 0).getTime() - new Date(a.appliedDate || 0).getTime())
+      .slice(0, 6);
+  }, [candidates]);
+
+  const panelGroupsToDisplay = useMemo(() => {
+    return panelGroups.slice(0, 4).map(group => {
+      const groupPanelIds = dbPanels
+        .filter(p => p.panel_group_id === group.id)
+        .map(p => String(p.id));
+        
+      const currentLoad = candidates.filter(c =>
+        (String(c.panelGroupId) === String(group.id) || groupPanelIds.includes(String(c.panelId))) &&
+        c.status !== 'Completed' && c.status !== 'Rejected'
+      ).length;
+      
+      const loadPct = Math.min((currentLoad / 10) * 100, 100);
+      
+      return {
+        id: group.id,
+        name: group.name,
+        type: group.description || 'General',
+        members: (group.members || []).map((m: any) => ({
+          name: m.name,
+          role: m.interview_type || 'Panelist'
+        })),
+        currentLoad,
+        capacity: 10,
+        loadPct,
+        meetLink: group.meet_link || '',
+        zoomLink: 'https://zoom.us/j/2220000002' // mock zoom link
+      };
+    });
+  }, [panelGroups, dbPanels, candidates]);
+
+  const recentActivities = useMemo(() => {
+    const list: any[] = [];
+    const sorted = [...candidates]
+      .sort((a, b) => new Date(b.appliedDate || 0).getTime() - new Date(a.appliedDate || 0).getTime());
+      
+    sorted.forEach((c) => {
+      list.push({
+        id: `act-apply-${c.id}`,
+        type: 'candidate_applied',
+        message: `New candidate applied: ${c.name} for ${c.role}`,
+        timestamp: c.appliedDate,
+        user: 'System'
+      });
+      
+      if (c.status === 'Scheduled' && c.interviewDate) {
+        list.push({
+          id: `act-sched-${c.id}`,
+          type: 'interview_scheduled',
+          message: `Interview scheduled for ${c.name} (${c.role})`,
+          timestamp: c.interviewDate,
+          user: 'Admin'
+        });
+      }
+      
+      if (c.status === 'Selected') {
+        list.push({
+          id: `act-select-${c.id}`,
+          type: 'panel_assigned',
+          message: `Candidate ${c.name} status updated to Selected`,
+          timestamp: c.interviewDate || c.appliedDate,
+          user: 'Admin'
+        });
+      }
+      
+      if (c.status === 'Completed') {
+        list.push({
+          id: `act-complete-${c.id}`,
+          type: 'feedback_submitted',
+          message: `Feedback submitted & interview completed for ${c.name}`,
+          timestamp: c.interviewDate || c.appliedDate,
+          user: 'System'
+        });
+      }
+    });
+    
+    return list
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 5);
+  }, [candidates]);
+
+  const handleManage = (panel: any) => {
     setManagedPanel(panel);
     setManagePanelOpen(true);
   };
+
   const panelCandidates = managedPanel ?
-  mockCandidates.filter((c) => c.panelId === managedPanel.id) :
-  [];
-  const panelGroup = managedPanel ?
-  mockPanelGroups.find((g) => g.id === managedPanel.panelGroupId) :
-  null;
+    candidates.filter((c) => String(c.panelGroupId) === String(managedPanel.id)) :
+    [];
+
+  const panelGroup = managedPanel; // since managedPanel is the panel group object now
   return (
     <DashboardLayout role="admin" title="Admin Dashboard" userName="Admin User">
       <motion.div
@@ -78,339 +246,351 @@ export function AdminDashboard() {
         </p> */}
       </motion.div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5">
-        <StatCard
-          icon={UsersIcon}
-          label="Total Candidates"
-          value={mockCandidates.length}
-          trend="+12%"
-          color="primary" />
-        
-        <StatCard
-          icon={CalendarIcon}
-          label="Scheduled"
-          value="24"
-          trend="+8%"
-          color="cyan" />
-        
-        <StatCard
-          icon={TrendingUpIcon}
-          label="Success Rate"
-          value="89%"
-          trend="+5%"
-          color="green" />
-        
-        <StatCard
-          icon={CheckCircleIcon}
-          label="Hired (Month)"
-          value="12"
-          trend="+15%"
-          color="green" />
-        
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-4 sm:gap-5 mb-5">
-        <motion.div
-          initial={{
-            opacity: 0,
-            y: 10
-          }}
-          animate={{
-            opacity: 1,
-            y: 0
-          }}
-          transition={{
-            delay: 0.1
-          }}>
-          
-          <GlassCard className="p-5">
-            <h3 className="text-sm font-semibold text-secondary mb-4">
-              Recruitment Pipeline
-            </h3>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={pipelineData}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(100, 116, 139, 0.2)" />
-                
-                <XAxis
-                  dataKey="stage"
-                  tick={{
-                    fill: '#64748B',
-                    fontSize: 10
-                  }}
-                  axisLine={false}
-                  tickLine={false} />
-                
-                <YAxis
-                  tick={{
-                    fill: '#64748B',
-                    fontSize: 10
-                  }}
-                  axisLine={false}
-                  tickLine={false} />
-                
-                <Tooltip
-                  contentStyle={{
-                    background: 'rgba(255, 255, 255, 0.95)',
-                    backdropFilter: 'blur(20px)',
-                    border: '1px solid rgba(255, 255, 255, 0.6)',
-                    borderRadius: '12px',
-                    fontSize: '11px'
-                  }} />
-                
-                <Bar dataKey="count" fill="#7C3AED" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </GlassCard>
-        </motion.div>
-
-        <motion.div
-          initial={{
-            opacity: 0,
-            y: 10
-          }}
-          animate={{
-            opacity: 1,
-            y: 0
-          }}
-          transition={{
-            delay: 0.15
-          }}>
-          
-          <GlassCard className="p-5">
-            <h3 className="text-sm font-semibold text-secondary mb-4">
-              Interviews Over Time
-            </h3>
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={interviewsOverTime}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(100, 116, 139, 0.2)" />
-                
-                <XAxis
-                  dataKey="date"
-                  tick={{
-                    fill: '#64748B',
-                    fontSize: 10
-                  }}
-                  axisLine={false}
-                  tickLine={false} />
-                
-                <YAxis
-                  tick={{
-                    fill: '#64748B',
-                    fontSize: 10
-                  }}
-                  axisLine={false}
-                  tickLine={false} />
-                
-                <Tooltip
-                  contentStyle={{
-                    background: 'rgba(255, 255, 255, 0.95)',
-                    backdropFilter: 'blur(20px)',
-                    border: '1px solid rgba(255, 255, 255, 0.6)',
-                    borderRadius: '12px',
-                    fontSize: '11px'
-                  }} />
-                
-                <Line
-                  type="monotone"
-                  dataKey="count"
-                  stroke="#7C3AED"
-                  strokeWidth={2.5}
-                  dot={{
-                    fill: '#7C3AED',
-                    r: 3
-                  }} />
-                
-              </LineChart>
-            </ResponsiveContainer>
-          </GlassCard>
-        </motion.div>
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-4 sm:gap-5">
-        <div className="lg:col-span-2 space-y-4 sm:space-y-5">
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 10
-            }}
-            animate={{
-              opacity: 1,
-              y: 0
-            }}
-            transition={{
-              delay: 0.2
-            }}>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-40 bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 mb-6">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs text-secondary/60 mt-2">Loading live metrics...</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5">
+            <StatCard
+              icon={UsersIcon}
+              label="Total Candidates"
+              value={counts.total}
+              trend="Live"
+              color="primary" />
             
-            <GlassCard className="p-5">
-              <h3 className="text-sm font-semibold text-secondary mb-4">
-                Recent Candidates
-              </h3>
-              <div className="space-y-2">
-                {mockCandidates.slice(0, 6).map((candidate, index) =>
-                <motion.div
-                  key={candidate.id}
-                  initial={{
-                    opacity: 0,
-                    x: -10
-                  }}
-                  animate={{
-                    opacity: 1,
-                    x: 0
-                  }}
-                  transition={{
-                    delay: 0.04 * index
-                  }}
-                  className="flex items-center justify-between p-3 bg-white/60 rounded-xl hover:bg-white/80 transition-colors gap-3">
-                  
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <img
-                      src={candidate.avatar}
-                      alt={candidate.name}
-                      className="w-9 h-9 rounded-full flex-shrink-0" />
-                    
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-secondary truncate">
-                          {candidate.name}
-                        </div>
-                        <div className="text-[10px] text-secondary/60 truncate">
-                          {candidate.role}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2.5 flex-shrink-0">
-                      <div className="text-right hidden sm:block">
-                        <div className="text-[10px] text-secondary/60">
-                          Interview
-                        </div>
-                        <div className="text-[10px] font-medium text-secondary">
-                          {new Date(
-                          candidate.interviewDate!
-                        ).toLocaleDateString()}
-                        </div>
-                      </div>
-                      <Badge
-                      variant={
-                      candidate.status === 'Selected' ?
-                      'success' :
-                      candidate.status === 'Rejected' ?
-                      'danger' :
-                      candidate.status === 'Completed' ?
-                      'info' :
-                      candidate.status === 'Scheduled' ?
-                      'primary' :
-                      'neutral'
-                      }
-                      size="sm">
-                      
-                        {candidate.status}
-                      </Badge>
-                      <button
-                      className="p-1.5 hover:bg-white/60 rounded-lg transition-colors"
-                      onClick={() => setRescheduleOpen(true)}>
-                      
-                        <MoreVerticalIcon className="w-3.5 h-3.5 text-secondary" />
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </div>
-            </GlassCard>
-          </motion.div>
-
-          {/* Panel Management */}
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 10
-            }}
-            animate={{
-              opacity: 1,
-              y: 0
-            }}
-            transition={{
-              delay: 0.25
-            }}>
+            <StatCard
+              icon={CalendarIcon}
+              label="Scheduled"
+              value={counts.scheduled}
+              trend="Live"
+              color="cyan" />
             
-            <GlassCard className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-secondary">
-                  Panel Management
+            <StatCard
+              icon={TrendingUpIcon}
+              label="Success Rate"
+              value={`${counts.successRate}%`}
+              trend="Live"
+              color="green" />
+            
+            <StatCard
+              icon={CheckCircleIcon}
+              label="Hired (Total)"
+              value={counts.hired}
+              trend="Live"
+              color="green" />
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-4 sm:gap-5 mb-5">
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 10
+              }}
+              animate={{
+                opacity: 1,
+                y: 0
+              }}
+              transition={{
+                delay: 0.1
+              }}>
+              
+              <GlassCard className="p-5">
+                <h3 className="text-sm font-semibold text-secondary mb-4">
+                  Recruitment Pipeline
                 </h3>
-              </div>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={pipelineData}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="rgba(100, 116, 139, 0.2)" />
+                    
+                    <XAxis
+                      dataKey="stage"
+                      tick={{
+                        fill: '#64748B',
+                        fontSize: 10
+                      }}
+                      axisLine={false}
+                      tickLine={false} />
+                    
+                    <YAxis
+                      tick={{
+                        fill: '#64748B',
+                        fontSize: 10
+                      }}
+                      axisLine={false}
+                      tickLine={false} />
+                    
+                    <Tooltip
+                      contentStyle={{
+                        background: 'rgba(255, 255, 255, 0.95)',
+                        backdropFilter: 'blur(20px)',
+                        border: '1px solid rgba(255, 255, 255, 0.6)',
+                        borderRadius: '12px',
+                        fontSize: '11px'
+                      }} />
+                    
+                    <Bar dataKey="count" fill="#7C3AED" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </GlassCard>
+            </motion.div>
 
-              <div className="grid sm:grid-cols-2 gap-3">
-                {mockPanels.slice(0, 4).map((panel, index) => {
-                  const loadPct = panel.currentLoad / panel.capacity * 100;
-                  return (
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 10
+              }}
+              animate={{
+                opacity: 1,
+                y: 0
+              }}
+              transition={{
+                delay: 0.15
+              }}>
+              
+              <GlassCard className="p-5">
+                <h3 className="text-sm font-semibold text-secondary mb-4">
+                  Interviews Over Time
+                </h3>
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={interviewsOverTime}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="rgba(100, 116, 139, 0.2)" />
+                    
+                    <XAxis
+                      dataKey="date"
+                      tick={{
+                        fill: '#64748B',
+                        fontSize: 10
+                      }}
+                      axisLine={false}
+                      tickLine={false} />
+                    
+                    <YAxis
+                      tick={{
+                        fill: '#64748B',
+                        fontSize: 10
+                      }}
+                      axisLine={false}
+                      tickLine={false} />
+                    
+                    <Tooltip
+                      contentStyle={{
+                        background: 'rgba(255, 255, 255, 0.95)',
+                        backdropFilter: 'blur(20px)',
+                        border: '1px solid rgba(255, 255, 255, 0.6)',
+                        borderRadius: '12px',
+                        fontSize: '11px'
+                      }} />
+                    
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      stroke="#7C3AED"
+                      strokeWidth={2.5}
+                      dot={{
+                        fill: '#7C3AED',
+                        r: 3
+                      }} />
+                    
+                  </LineChart>
+                </ResponsiveContainer>
+              </GlassCard>
+            </motion.div>
+          </div>
+
+          <div className="grid lg:grid-cols-3 gap-4 sm:gap-5">
+            <div className="lg:col-span-2 space-y-4 sm:space-y-5">
+              <motion.div
+                initial={{
+                  opacity: 0,
+                  y: 10
+                }}
+                animate={{
+                  opacity: 1,
+                  y: 0
+                }}
+                transition={{
+                  delay: 0.2
+                }}>
+                
+                <GlassCard className="p-5">
+                  <h3 className="text-sm font-semibold text-secondary mb-4">
+                    Recent Candidates
+                  </h3>
+                  <div className="space-y-2">
+                    {recentCandidates.map((candidate, index) =>
                     <motion.div
-                      key={panel.id}
+                      key={candidate.id}
                       initial={{
                         opacity: 0,
-                        scale: 0.95
+                        x: -10
                       }}
                       animate={{
                         opacity: 1,
-                        scale: 1
+                        x: 0
                       }}
                       transition={{
-                        delay: 0.08 * index
+                        delay: 0.04 * index
                       }}
-                      className="bg-white/60 rounded-xl p-3.5">
+                      className="flex items-center justify-between p-3 bg-white/60 rounded-xl hover:bg-white/80 transition-colors gap-3">
                       
-                      <div className="flex items-center justify-between mb-2.5">
-                        <h4 className="text-xs font-semibold text-secondary">
-                          {panel.name}
-                        </h4>
-                        <Badge variant="primary" size="sm">
-                          {panel.type}
-                        </Badge>
-                      </div>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img
+                          src={candidate.avatar}
+                          alt={candidate.name}
+                          className="w-9 h-9 rounded-full flex-shrink-0" />
+                        
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-secondary truncate">
+                              {candidate.name}
+                            </div>
+                            <div className="text-[10px] text-secondary/60 truncate">
+                              {candidate.role}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2.5 flex-shrink-0">
+                          <div className="text-right hidden sm:block">
+                            <div className="text-[10px] text-secondary/60">
+                              Interview
+                            </div>
+                            <div className="text-[10px] font-medium text-secondary">
+                              {candidate.interviewDate ? new Date(
+                              candidate.interviewDate
+                            ).toLocaleDateString() : 'TBD'}
+                            </div>
+                          </div>
+                          <Badge
+                          variant={
+                          candidate.status === 'Selected' ?
+                          'success' :
+                          candidate.status === 'Rejected' ?
+                          'danger' :
+                          candidate.status === 'Completed' ?
+                          'info' :
+                          candidate.status === 'Scheduled' ?
+                          'primary' :
+                          'neutral'
+                          }
+                          size="sm">
+                          
+                            {candidate.status}
+                          </Badge>
+                          <button
+                          className="p-1.5 hover:bg-white/60 rounded-lg transition-colors"
+                          onClick={() => setRescheduleOpen(true)}>
+                          
+                            <MoreVerticalIcon className="w-3.5 h-3.5 text-secondary" />
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                    {recentCandidates.length === 0 && (
+                      <p className="text-xs text-secondary/50 text-center py-4">No recent candidates found</p>
+                    )}
+                  </div>
+                </GlassCard>
+              </motion.div>
 
-                      <div className="text-[10px] text-secondary/60 mb-1 truncate">
-                        Members:{' '}
-                        {panel.members.
-                        map((m) => `${m.name} (${m.role})`).
-                        join(', ')}
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] mb-1">
-                        <span className="text-secondary/60 uppercase tracking-wider">
-                          Load
-                        </span>
-                        <span className="font-medium text-secondary">
-                          {panel.currentLoad}/{panel.capacity}
-                        </span>
-                      </div>
-                      <div className="w-full h-1 bg-white/60 rounded-full overflow-hidden mb-3">
+              {/* Panel Management */}
+              <motion.div
+                initial={{
+                  opacity: 0,
+                  y: 10
+                }}
+                animate={{
+                  opacity: 1,
+                  y: 0
+                }}
+                transition={{
+                  delay: 0.25
+                }}>
+                
+                <GlassCard className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-secondary">
+                      Panel Management
+                    </h3>
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    {panelGroupsToDisplay.map((panel, index) => {
+                      const loadPct = panel.loadPct;
+                      return (
                         <motion.div
+                          key={panel.id}
                           initial={{
-                            width: 0
+                            opacity: 0,
+                            scale: 0.95
                           }}
                           animate={{
-                            width: `${loadPct}%`
+                            opacity: 1,
+                            scale: 1
                           }}
-                          className={`h-full ${loadPct === 100 ? 'bg-red-500' : loadPct > 80 ? 'bg-yellow-500' : 'bg-primary'}`} />
-                        
-                      </div>
+                          transition={{
+                            delay: 0.08 * index
+                          }}
+                          className="bg-white/60 rounded-xl p-3.5">
+                          
+                          <div className="flex items-center justify-between mb-2.5">
+                            <h4 className="text-xs font-semibold text-secondary">
+                              {panel.name}
+                            </h4>
+                            <Badge variant="primary" size="sm">
+                              {panel.type}
+                            </Badge>
+                          </div>
 
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full"
-                        onClick={() => handleManage(panel)}>
-                        
-                        Manage Panel
-                      </Button>
-                    </motion.div>);
+                          <div className="text-[10px] text-secondary/60 mb-1 truncate">
+                            Members:{' '}
+                            {panel.members.length > 0 ? panel.members.
+                            map((m: any) => `${m.name} (${m.role})`).
+                            join(', ') : 'No panelists assigned'}
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] mb-1">
+                            <span className="text-secondary/60 uppercase tracking-wider">
+                              Load
+                            </span>
+                            <span className="font-medium text-secondary">
+                              {panel.currentLoad}/{panel.capacity}
+                            </span>
+                          </div>
+                          <div className="w-full h-1 bg-white/60 rounded-full overflow-hidden mb-3">
+                            <motion.div
+                              initial={{
+                                width: 0
+                              }}
+                              animate={{
+                                width: `${loadPct}%`
+                              }}
+                              className={`h-full ${loadPct === 100 ? 'bg-red-500' : loadPct > 80 ? 'bg-yellow-500' : 'bg-primary'}`} />
+                            
+                          </div>
 
-                })}
-              </div>
-            </GlassCard>
-          </motion.div>
-        </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => handleManage(panel)}>
+                            
+                            Manage Panel
+                          </Button>
+                        </motion.div>);
+
+                    })}
+                    {panelGroupsToDisplay.length === 0 && (
+                      <p className="text-xs text-secondary/50 text-center py-4 col-span-2">No panel groups found</p>
+                    )}
+                  </div>
+                </GlassCard>
+              </motion.div>
+            </div>
 
         <div className="space-y-4 sm:space-y-5">
           <motion.div
@@ -498,7 +678,7 @@ export function AdminDashboard() {
                 Recent Activity
               </h3>
               <div className="space-y-2.5">
-                {mockActivities.map((activity) =>
+                {recentActivities.map((activity) =>
                 <div key={activity.id} className="flex items-start gap-2.5">
                     <div
                     className={`w-7 h-7 rounded-lg border flex items-center justify-center flex-shrink-0 ${activity.type === 'interview_scheduled' ? 'bg-primary/10 border-primary/20' : activity.type === 'feedback_submitted' ? 'bg-cyan/10 border-cyan/20' : activity.type === 'candidate_applied' ? 'bg-green-500/10 border-green-500/20' : 'bg-yellow-500/10 border-yellow-500/20'}`}>
@@ -523,11 +703,16 @@ export function AdminDashboard() {
                     </div>
                   </div>
                 )}
+                {recentActivities.length === 0 && (
+                  <p className="text-xs text-secondary/50 text-center py-4">No recent activity logs</p>
+                )}
               </div>
             </GlassCard>
           </motion.div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Reschedule modal */}
       <Modal
@@ -608,7 +793,7 @@ export function AdminDashboard() {
                 Members
               </div>
               <div className="space-y-1.5">
-                {managedPanel.members.map((m) =>
+                {managedPanel.members.map((m: any) =>
               <div
                 key={m.name}
                 className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-primary/10 text-primary text-[11px] rounded-lg border border-primary/20">

@@ -7,6 +7,7 @@ from app.models.job_role import JobRole
 from app.models.interview_schedule import InterviewSchedule
 from datetime import datetime, date, time, timedelta
 from celery.exceptions import Retry
+from zoneinfo import ZoneInfo
 
 N8N_WEBHOOK_URL = "http://localhost:5678/webhook/schedule-interview"
 
@@ -104,6 +105,9 @@ def schedule_interview_task(self, schedule_id, candidate_id):
         elif job_type:
             is_offline = job_type.lower() == "offline"
 
+        if is_offline and schedule.gmeet_link:
+            venue = schedule.gmeet_link
+
         # For offline interviews, skip n8n and don't generate gmeet link
         if is_offline:
             schedule.interview_status = "scheduled"
@@ -132,7 +136,13 @@ def schedule_interview_task(self, schedule_id, candidate_id):
             if schedule.start_time else None,
 
             "end_time": schedule.end_time.isoformat()
-            if schedule.end_time else None
+            if schedule.end_time else None,
+
+            "start_datetime": f"{schedule.date.isoformat()}T{schedule.start_time.isoformat()}+05:30"
+            if schedule.date and schedule.start_time else None,
+
+            "end_datetime": f"{schedule.date.isoformat()}T{schedule.end_time.isoformat()}+05:30"
+            if schedule.date and schedule.end_time else None
         }
 
 
@@ -353,5 +363,67 @@ def schedule_interview_task(self, schedule_id, candidate_id):
     # CLOSE DATABASE
     # ============================================
 
+    finally:
+        db.close()
+
+
+@celery.task
+def send_interview_reminder_task(schedule_id):
+    db = SessionLocal()
+    try:
+        schedule = db.query(InterviewSchedule).filter(InterviewSchedule.id == schedule_id).first()
+        if not schedule or schedule.interview_status == "cancelled":
+            return False
+            
+        candidate = db.query(Candidate).filter(Candidate.id == schedule.candidate_id).first()
+        if not candidate:
+            return False
+            
+        from app.models.panel import Panel
+        from app.models.panel_group import PanelGroup
+        
+        cand_panels = []
+        if candidate.panel_id:
+            import json
+            try:
+                parsed = json.loads(candidate.panel_id)
+                if isinstance(parsed, list):
+                    cand_panels = db.query(Panel).filter(Panel.id.in_(parsed)).all()
+                else:
+                    cand_panels = db.query(Panel).filter(Panel.id == int(parsed)).all()
+            except Exception:
+                try:
+                    cand_panels = db.query(Panel).filter(Panel.id == int(candidate.panel_id)).all()
+                except Exception:
+                    p_by_name = db.query(Panel).filter(Panel.hr_panelists_name == candidate.panel_id).first()
+                    if p_by_name:
+                        cand_panels = [p_by_name]
+                        
+        if not cand_panels and candidate.panel_group_id:
+            try:
+                group_id = int(candidate.panel_group_id)
+                group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
+            except Exception:
+                group = db.query(PanelGroup).filter(PanelGroup.name == candidate.panel_group_id).first()
+            if group:
+                cand_panels = group.panels
+                
+        from app.services.notification_service import NotificationService
+        from app.models.notification import NotificationType
+        
+        for p in cand_panels:
+            if p.user_id:
+                NotificationService.create_notification(
+                    db=db,
+                    user_id=p.user_id,
+                    title="Upcoming Interview Reminder",
+                    message=f"Reminder: You have an interview with {candidate.full_name} scheduled in 1 hour (at {schedule.start_time.strftime('%I:%M %p') if schedule.start_time else ''}).",
+                    notification_type=NotificationType.WARNING,
+                    candidate_id=candidate.id,
+                    icon="clock",
+                    priority="high",
+                    redirect_url="/panel/schedule"
+                )
+        return True
     finally:
         db.close()

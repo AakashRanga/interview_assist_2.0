@@ -18,6 +18,13 @@ import {
 'lucide-react';
 import { VirtusaLogo } from '../ui/VirtusaLogo';
 import { API_BASE_URL } from '../../config';
+interface SidebarLink {
+  to: string;
+  icon: React.ComponentType<any>;
+  label: string;
+  badge?: number;
+}
+
 interface SidebarProps {
   role: 'candidate' | 'panel' | 'admin';
   collapsed: boolean;
@@ -80,7 +87,7 @@ export function Sidebar({
     return () => window.removeEventListener('notificationUnreadCountUpdated', handleCountUpdated);
   }, [role]);
 
-  const candidateLinks = [
+  const candidateLinks: SidebarLink[] = [
   {
     to: '/candidate/dashboard',
     icon: LayoutDashboardIcon,
@@ -98,7 +105,7 @@ export function Sidebar({
     badge: unreadCount
   }];
 
-  const panelLinks = [
+  const panelLinks: SidebarLink[] = [
   {
     to: '/panel/dashboard',
     icon: LayoutDashboardIcon,
@@ -121,7 +128,7 @@ export function Sidebar({
     badge: unreadCount
   }];
 
-  const adminLinks = [
+  const adminLinks: SidebarLink[] = [
   {
     to: '/admin/dashboard',
     icon: LayoutDashboardIcon,
@@ -221,53 +228,58 @@ export function Sidebar({
           
             <div className="flex flex-col h-full p-3.5">
               {/* Header */}
-              <div className="flex items-center justify-between mb-6 px-2 pt-1">
-                <motion.div
-                initial={{
-                  opacity: 0,
-                  x: -8
-                }}
-                animate={{
-                  opacity: 1,
-                  x: 0
-                }}
-                exit={{
-                  opacity: 0,
-                  x: -8
-                }}
-                transition={{
-                  duration: 0.15
-                }}>
-                
-                  <div className="flex items-center gap-1.5">
-                    <VirtusaLogo className="w-6 h-6" />
-                    <h1 className="text-base font-bold text-primary tracking-tight leading-tight">
-                      Interview Schedule
-                    </h1>
-                  </div>
-                  <p className="text-[11px] text-secondary/60 uppercase tracking-wider mt-0.5">
-                    {portalLabel}
-                  </p>
-                </motion.div>
-                {isMobile ?
-              <button
-                onClick={onMobileClose}
-                className="p-1.5 hover:bg-white/60 rounded-lg transition-colors flex-shrink-0">
-                
+              <div className={`flex ${effectiveCollapsed ? 'flex-col items-center gap-3' : 'items-center justify-between'} mb-6 px-2 pt-1`}>
+                <div className={`flex ${effectiveCollapsed ? 'justify-center' : 'items-center gap-1.5'} min-w-0`}>
+                  <VirtusaLogo className="w-6 h-6 flex-shrink-0" />
+                  <AnimatePresence>
+                    {!effectiveCollapsed && (
+                      <motion.div
+                        initial={{
+                          opacity: 0,
+                          x: -8
+                        }}
+                        animate={{
+                          opacity: 1,
+                          x: 0
+                        }}
+                        exit={{
+                          opacity: 0,
+                          x: -8
+                        }}
+                        transition={{
+                          duration: 0.15
+                        }}
+                        className="overflow-hidden min-w-0"
+                      >
+                        <h1 className="text-base font-bold text-primary tracking-tight leading-tight whitespace-nowrap">
+                          Interview Schedule
+                        </h1>
+                        <p className="text-[11px] text-secondary/60 uppercase tracking-wider mt-0.5 whitespace-nowrap">
+                          {portalLabel}
+                        </p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+                {isMobile ? (
+                  <button
+                    onClick={onMobileClose}
+                    className="p-1.5 hover:bg-white/60 rounded-lg transition-colors flex-shrink-0"
+                  >
                     <XIcon className="w-4 h-4 text-secondary" />
-                  </button> :
-
-              <button
-                onClick={onToggle}
-                className="p-1.5 hover:bg-white/60 rounded-lg transition-colors flex-shrink-0">
-                
-                    {collapsed ?
-                <ChevronRightIcon className="w-4 h-4 text-secondary" /> :
-
-                <ChevronLeftIcon className="w-4 h-4 text-secondary" />
-                }
                   </button>
-              }
+                ) : (
+                  <button
+                    onClick={onToggle}
+                    className="p-1.5 hover:bg-white/60 rounded-lg transition-colors flex-shrink-0"
+                  >
+                    {collapsed ? (
+                      <ChevronRightIcon className="w-4 h-4 text-secondary" />
+                    ) : (
+                      <ChevronLeftIcon className="w-4 h-4 text-secondary" />
+                    )}
+                  </button>
+                )}
               </div>
 
               {/* Nav */}
@@ -308,7 +320,7 @@ export function Sidebar({
                         </motion.span>
                   }
                     </AnimatePresence>
-                    {link.badge > 0 && (
+                    {link.badge !== undefined && link.badge > 0 && (
                       <span
                         className={`ml-auto ${effectiveCollapsed ? 'w-2.5 h-2.5 rounded-full bg-primary' : 'inline-flex items-center justify-center min-w-[1.4rem] h-6 rounded-full bg-primary/10 text-primary text-[11px] font-semibold'}`}>
                         {!effectiveCollapsed && link.badge}

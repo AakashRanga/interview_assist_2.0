@@ -16,7 +16,7 @@ from app.models.panel import Panel
 from app.models.panel_group import PanelGroup
 from app.services.notification_service import NotificationService
 from app.models.notification import ActivityType, NotificationType
-from app.workers.tasks import schedule_interview_task
+from app.workers.tasks import schedule_interview_task, send_interview_reminder_task
 from datetime import datetime, date, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -461,9 +461,15 @@ def get_admin_candidates():
                     interview_time = f"{start_str} - {end_str}"
                 elif schedule.start_time:
                     interview_time = schedule.start_time.strftime("%I:%M %p")
-                meet_link = schedule.gmeet_link
-                if schedule.interview_mode:
-                    mode_val = schedule.interview_mode.capitalize()
+                
+                if schedule.interview_mode and schedule.interview_mode.lower() == "offline":
+                    mode_val = "Offline"
+                    venue = schedule.gmeet_link or venue
+                    meet_link = None
+                else:
+                    if schedule.interview_mode:
+                        mode_val = schedule.interview_mode.capitalize()
+                    meet_link = schedule.gmeet_link
                 # Parse panel_ids from JSON string (e.g., "[1,2,3,4,5]")
                 if schedule.panel_id:
                     try:
@@ -789,7 +795,7 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
             application.status = "Scheduled"
             db.add(application)
             
-        # Create activity and notify
+        # Create activity and notify candidate
         try:
             NotificationService.create_activity_and_notify(
                 db=db,
@@ -807,6 +813,68 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
             )
         except Exception as notif_error:
             print(f"Failed to create notification: {notif_error}")
+
+        # Notify assigned panel members and schedule 1-hour reminder
+        try:
+            cand_panels = []
+            if candidate.panel_id:
+                try:
+                    parsed = json.loads(candidate.panel_id)
+                    if isinstance(parsed, list):
+                        cand_panels = db.query(Panel).filter(Panel.id.in_(parsed)).all()
+                    else:
+                        cand_panels = db.query(Panel).filter(Panel.id == int(parsed)).all()
+                except Exception:
+                    try:
+                        cand_panels = db.query(Panel).filter(Panel.id == int(candidate.panel_id)).all()
+                    except Exception:
+                        p_by_name = db.query(Panel).filter(Panel.hr_panelists_name == candidate.panel_id).first()
+                        if p_by_name:
+                            cand_panels = [p_by_name]
+
+            if not cand_panels and candidate.panel_group_id:
+                group = None
+                try:
+                    group_id = int(candidate.panel_group_id)
+                    group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
+                except Exception:
+                    group = db.query(PanelGroup).filter(PanelGroup.name == candidate.panel_group_id).first()
+                if group:
+                    cand_panels = group.panels
+
+            role_title = application.role.title if (application and application.role) else "Applied Role"
+            
+            # Send immediate notification to each panelist
+            for p in cand_panels:
+                if p.user_id:
+                    NotificationService.create_notification(
+                        db=db,
+                        user_id=p.user_id,
+                        title="New Interview Assigned",
+                        message=f"You have been assigned to interview {candidate.full_name} for the {role_title} role on {schedule.date.strftime('%Y-%m-%d') if schedule.date else 'scheduled date'} at {schedule.start_time.strftime('%I:%M %p') if schedule.start_time else ''}.",
+                        notification_type=NotificationType.INFO,
+                        candidate_id=candidate.id,
+                        icon="calendar",
+                        priority="medium",
+                        redirect_url="/panel/schedule"
+                    )
+            
+            # Schedule 1-hour pre-interview reminder
+            if schedule.date and schedule.start_time:
+                IST = ZoneInfo('Asia/Kolkata')
+                start_datetime_tz = datetime.combine(schedule.date, schedule.start_time).replace(tzinfo=IST)
+                now_ist = datetime.now(IST)
+                reminder_time_tz = start_datetime_tz - timedelta(hours=1)
+                
+                if reminder_time_tz > now_ist:
+                    eta_utc = reminder_time_tz.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+                    send_interview_reminder_task.apply_async(args=[schedule.id], eta=eta_utc)
+                    print(f"Scheduled Celery 1-hour reminder at {eta_utc} UTC")
+                else:
+                    send_interview_reminder_task.delay(schedule.id)
+                    
+        except Exception as panel_notif_error:
+            print(f"Failed to create panelist notification: {panel_notif_error}")
             
         db.commit()
         return {"status": "success", "message": "Panel assigned and scheduling workflow started."}
@@ -1062,6 +1130,7 @@ class ScheduleManualRequest(BaseModel):
     end_time: str
     interview_mode: str
     interview_level: Optional[str] = None
+    venue: Optional[str] = None
 
 
 @router.post("/candidates/{candidate_id}/schedule-manual")
@@ -1115,16 +1184,26 @@ def schedule_manual(candidate_id: int, data: ScheduleManualRequest):
             )
             db.add(schedule)
 
-        # Reuse existing gmeet_link if any
-        if not schedule.gmeet_link:
-            prior_schedule = db.query(InterviewSchedule).filter(
-                InterviewSchedule.candidate_id == candidate_id,
-                InterviewSchedule.gmeet_link.isnot(None),
-                InterviewSchedule.gmeet_link != ""
-            ).order_by(InterviewSchedule.created_at.desc()).first()
-            if prior_schedule:
-                schedule.gmeet_link = prior_schedule.gmeet_link
-                db.add(schedule)
+        # Handle gmeet_link vs venue based on interview mode
+        if data.interview_mode.lower() == "offline":
+            schedule.gmeet_link = data.venue
+            db.add(schedule)
+        else:
+            # Online mode: if the old mode was offline (meaning gmeet_link was a venue), clear it first!
+            if schedule.interview_mode and schedule.interview_mode.lower() == "offline":
+                schedule.gmeet_link = None
+            
+            # Reuse existing gmeet_link if any
+            if not schedule.gmeet_link:
+                prior_schedule = db.query(InterviewSchedule).filter(
+                    InterviewSchedule.candidate_id == candidate_id,
+                    InterviewSchedule.gmeet_link.isnot(None),
+                    InterviewSchedule.gmeet_link != "",
+                    InterviewSchedule.interview_mode != "offline"
+                ).order_by(InterviewSchedule.created_at.desc()).first()
+                if prior_schedule:
+                    schedule.gmeet_link = prior_schedule.gmeet_link
+                    db.add(schedule)
 
         # Update PanelGroup's meet_link directly
         if schedule.gmeet_link and candidate.panel_group_id:

@@ -7,6 +7,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import joinedload
+from sqlalchemy import or_
 
 from app.database import SessionLocal
 from app.models.candidate import Candidate, CandidateEducation as DBCandidateEducation, CandidateExperience as DBCandidateExperience
@@ -14,10 +15,13 @@ from app.models.candidate_application import CandidateApplication
 from app.models.job_role import JobRole
 from app.models.interview_schedule import InterviewSchedule
 from app.models.user import User
+from app.models.panel import Panel
+from app.models.panel_group import PanelGroup
 from app.services.notification_service import NotificationService
 from app.models.notification import ActivityType, NotificationType
 
 router = APIRouter()
+
 
 
 class CandidateRequest(BaseModel):
@@ -640,6 +644,7 @@ def get_candidate_dashboard(user_id: int):
             if interview:
                 # Get job details for venue and job_type
                 job_role = db.query(JobRole).filter(JobRole.id == latest_app.role_id).first()
+                is_offline_interview = interview.interview_mode and interview.interview_mode.lower() == "offline"
                 interview_schedule = InterviewScheduleResponse(
                     id=interview.id,
                     candidate_id=interview.candidate_id,
@@ -647,10 +652,10 @@ def get_candidate_dashboard(user_id: int):
                     date=interview.date,
                     start_time=interview.start_time,
                     end_time=interview.end_time,
-                    gmeet_link=interview.gmeet_link,
+                    gmeet_link=None if is_offline_interview else interview.gmeet_link,
                     interview_status=interview.interview_status,
-                    job_type=job_role.job_type if job_role else "",
-                    venue=job_role.venue if job_role else None,
+                    job_type="Offline" if is_offline_interview else (job_role.job_type if job_role else "Online"),
+                    venue=interview.gmeet_link if is_offline_interview else (job_role.venue if job_role else None),
                 )
 
         # Manually construct the CandidateProfileResponse to avoid Pydantic
@@ -883,3 +888,195 @@ def apply_role_by_user(user_id: int, data: ApplyRoleRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@router.get("/user/{user_id}/panel-dashboard")
+def get_panel_dashboard(user_id: int):
+    db = SessionLocal()
+    try:
+        panel = db.query(Panel).filter(Panel.user_id == user_id).first()
+        if not panel:
+            raise HTTPException(status_code=404, detail="Panel member not found")
+        
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        group_panel_ids = []
+        group = None
+        if panel.panel_group_id:
+            group = db.query(PanelGroup).filter(PanelGroup.id == panel.panel_group_id).first()
+            if group:
+                group_panel_ids = [str(p.id) for p in group.panels]
+        if not group_panel_ids:
+            group_panel_ids = [str(panel.id)]
+            
+        candidates = db.query(Candidate).filter(
+            or_(
+                Candidate.panel_group_id == str(panel.panel_group_id) if panel.panel_group_id else False,
+                Candidate.panel_id == str(panel.id),
+                Candidate.panel_id.in_(group_panel_ids)
+            )
+        ).all()
+        
+        formatted_candidates = []
+        for c in candidates:
+            application = db.query(CandidateApplication).filter(
+                CandidateApplication.candidate_id == c.id
+            ).order_by(CandidateApplication.created_at.desc()).first()
+            
+            role_title = "No Applied Role"
+            app_status = c.status
+            applied_date_str = c.created_at.isoformat() if c.created_at else datetime.utcnow().isoformat()
+            job_type = "Online"
+            venue = None
+            job_id = None
+            
+            if application:
+                role_title = application.role.title if application.role else "Unknown Role"
+                app_status = application.status
+                applied_date_str = application.created_at.isoformat()
+                job_type = application.role.job_type if application.role else "Online"
+                venue = application.role.venue if application.role else None
+                job_id = application.role_id
+
+            sched_query = db.query(InterviewSchedule).filter(
+                InterviewSchedule.candidate_id == c.id
+            )
+            if job_id:
+                sched_query = sched_query.filter(InterviewSchedule.job_id == job_id)
+            schedule = sched_query.order_by(InterviewSchedule.created_at.desc()).first()
+
+            interview_date = None
+            interview_time = None
+            meet_link = None
+
+            mode_val = job_type
+            if schedule:
+                interview_date = schedule.date.isoformat() if schedule.date else None
+                if schedule.start_time and schedule.end_time:
+                    start_str = schedule.start_time.strftime("%I:%M %p")
+                    end_str = schedule.end_time.strftime("%I:%M %p")
+                    interview_time = f"{start_str} - {end_str}"
+                elif schedule.start_time:
+                    interview_time = schedule.start_time.strftime("%I:%M %p")
+                
+                if schedule.interview_mode and schedule.interview_mode.lower() == "offline":
+                    mode_val = "Offline"
+                    venue = schedule.gmeet_link or venue
+                    meet_link = None
+                else:
+                    if schedule.interview_mode:
+                        mode_val = schedule.interview_mode.capitalize()
+                    meet_link = schedule.gmeet_link
+
+            profile_pct = 60
+            if c.phone:
+                profile_pct += 10
+            if c.resume_path:
+                profile_pct += 10
+            if c.education_list:
+                profile_pct += 10
+            if c.experience_list:
+                profile_pct += 10
+            if profile_pct > 100:
+                profile_pct = 100
+
+            skills_list = [s.strip() for s in c.skills.split(",") if s.strip()] if c.skills else []
+
+            exp_str = "No experience listed"
+            if c.experience_list:
+                latest_exp = c.experience_list[0]
+                exp_str = f"{latest_exp.years_experience} years as {latest_exp.current_role} at {latest_exp.company}"
+
+            edu_str = "No education listed"
+            if c.education_list:
+                latest_edu = c.education_list[0]
+                edu_str = f"{latest_edu.degree} from {latest_edu.university} (Class of {latest_edu.graduation_year})"
+
+            resume_url = c.resume_path if c.resume_path else None
+            avatar_url = f"https://api.dicebear.com/7.x/avataaars/svg?seed={c.id}"
+
+            formatted_candidates.append({
+                "id": str(c.id),
+                "name": c.full_name,
+                "email": c.email,
+                "phone": c.phone or "",
+                "role": role_title,
+                "status": app_status,
+                "interviewDate": interview_date,
+                "interviewTime": interview_time,
+                "mode": mode_val,
+                "panelId": c.panel_id or "",
+                "panelGroupId": c.panel_group_id or "",
+                "profileComplete": profile_pct,
+                "avatar": avatar_url,
+                "skills": skills_list,
+                "experience": exp_str,
+                "education": edu_str,
+                "resumeUrl": resume_url,
+                "meetLink": meet_link,
+                "venue": venue,
+                "appliedDate": applied_date_str,
+                "roleId": job_id
+            })
+
+        members = []
+        if group:
+            for member in group.panels:
+                name = member.hr_panelists_name
+                if not name and member.user_id:
+                    u = db.query(User).filter(User.id == member.user_id).first()
+                    if u:
+                        name = u.full_name
+                if not name:
+                    name = f"Panel {member.id}"
+                members.append({
+                    "id": str(member.id),
+                    "name": name,
+                    "role": member.interview_type or "Panelist",
+                    "meetLink": member.team_link or ""
+                })
+        else:
+            members.append({
+                "id": str(panel.id),
+                "name": user.full_name,
+                "role": panel.interview_type or "Panelist",
+                "meetLink": panel.team_link or ""
+            })
+
+        panel_response = {
+            "id": str(panel.id),
+            "name": group.name if group else (user.full_name),
+            "description": group.description if group else (panel.mr_panelist_grade or "Interview Panel"),
+            "meetLink": group.meet_link if group else (panel.team_link or ""),
+            "type": panel.interview_type or "HR/Technical",
+            "members": members
+        }
+
+        completed_count = sum(1 for c in formatted_candidates if c["status"] in ("Completed", "Selected", "Rejected"))
+        scheduled_count = sum(1 for c in formatted_candidates if c["status"] == "Scheduled")
+        
+        pending_feedback = 0
+        now = datetime.now()
+        for fc in formatted_candidates:
+            if fc["status"] == "Scheduled" and fc["interviewDate"]:
+                try:
+                    int_date = datetime.fromisoformat(fc["interviewDate"]).date()
+                    if int_date < now.date():
+                        pending_feedback += 1
+                except Exception:
+                    pass
+
+        return {
+            "panel": panel_response,
+            "candidates": formatted_candidates,
+            "stats": {
+                "assigned_count": len(formatted_candidates),
+                "scheduled_count": scheduled_count,
+                "completed_count": completed_count,
+                "pending_feedback_count": pending_feedback
+            }
+        }
+    finally:
+        db.close()
