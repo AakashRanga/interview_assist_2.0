@@ -28,6 +28,71 @@ const isMeetingUrl = (url?: string): boolean => {
          cleaned.includes('zoom.us');
 };
 
+const parseTime = (timePart: string): Date | null => {
+  const match = timePart.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
+  if (!match) return null;
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const ampm = match[3].toUpperCase();
+  
+  if (ampm === 'PM' && hours < 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+  
+  const d = new Date();
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+};
+
+const isSlotActive = (dateStr: string, timeStr: string): boolean => {
+  try {
+    const today = new Date();
+    const d = new Date(dateStr);
+    if (d.getFullYear() !== today.getFullYear() ||
+        d.getMonth() !== today.getMonth() ||
+        d.getDate() !== today.getDate()) {
+      return false;
+    }
+    
+    const parts = timeStr.split('-');
+    if (parts.length < 2) {
+      const start = parseTime(parts[0].trim());
+      if (!start) return false;
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      return today >= start && today <= end;
+    }
+    
+    const start = parseTime(parts[0].trim());
+    const end = parseTime(parts[1].trim());
+    if (!start || !end) return false;
+    
+    return today >= start && today <= end;
+  } catch (e) {
+    return false;
+  }
+};
+
+const getInterviewStartDateTime = (dateStr: string, timeStr: string): Date | null => {
+  try {
+    const d = new Date(dateStr);
+    const parts = timeStr.split('-');
+    const start = parseTime(parts[0].trim());
+    if (!start) return null;
+    d.setHours(start.getHours(), start.getMinutes(), 0, 0);
+    return d;
+  } catch (e) {
+    return null;
+  }
+};
+
+const formatShortDate = (iso: string) => {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+};
+
 export function PanelCandidates() {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +104,14 @@ export function PanelCandidates() {
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(
     null
   );
+
+  const [timeTick, setTimeTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeTick(t => t + 1);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
@@ -56,6 +129,13 @@ export function PanelCandidates() {
               setDashboardData(data);
               if (data?.panel) {
                 setSelectedGroupId(data.panel.id);
+                // Pre-select the logged-in panelist's category/tab
+                const loggedIn = data.panel.members?.find(
+                  (m: any) => m.name === (u.full_name || 'Sarah Johnson')
+                );
+                if (loggedIn) {
+                  setSelectedCategoryId(loggedIn.id);
+                }
               }
               setLoading(false);
             })
@@ -82,14 +162,89 @@ export function PanelCandidates() {
   
   const selectedGroup = dashboardData?.panel;
 
-  const candidates = (dashboardData?.candidates || []).filter(
+  const isCandidateAssignedToPanel = (candidate: any, panelId: string | number) => {
+    if (!candidate.panelId) return false;
+    const targetId = String(panelId);
+    const candPanelIdStr = String(candidate.panelId);
+    if (candPanelIdStr.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(candPanelIdStr);
+        if (Array.isArray(parsed)) {
+          return parsed.map(String).includes(targetId);
+        }
+      } catch (e) {}
+    }
+    return candPanelIdStr === targetId;
+  };
+
+  const loggedInMember = dashboardData?.panel?.members?.find(
+    (m: any) => m.name === userName
+  );
+  const loggedInMemberId = loggedInMember ? loggedInMember.id : '';
+
+  const rawCandidates = (dashboardData?.candidates || []).filter(
     (c: any) =>
-    (selectedCategoryId === '' || c.panelId === selectedCategoryId) &&
+    (selectedCategoryId === '' || isCandidateAssignedToPanel(c, selectedCategoryId)) &&
     c.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  const candidates = [...rawCandidates].sort((a: any, b: any) => {
+    const aAssigned = loggedInMemberId ? isCandidateAssignedToPanel(a, loggedInMemberId) : false;
+    const bAssigned = loggedInMemberId ? isCandidateAssignedToPanel(b, loggedInMemberId) : false;
+    if (aAssigned && !bAssigned) return -1;
+    if (!aAssigned && bAssigned) return 1;
+    return 0;
+  });
+
   const onlineCandidates = candidates.filter((c: any) => c.mode === 'Online');
   const offlineCandidates = candidates.filter((c: any) => c.mode !== 'Online');
+
+  const getActiveMeetLink = (filteredCandidates: any[]) => {
+    const onlineCandidates = filteredCandidates.filter((c: any) =>
+      c.interviewDate &&
+      c.interviewTime &&
+      c.meetLink &&
+      c.mode === 'Online'
+    );
+
+    // 1. Check for currently active candidate
+    const activeCandidate = onlineCandidates.find((c: any) => isSlotActive(c.interviewDate, c.interviewTime));
+    if (activeCandidate) {
+      return {
+        link: activeCandidate.meetLink,
+        status: 'active',
+        candidateName: activeCandidate.name,
+        timeInfo: activeCandidate.interviewTime
+      };
+    }
+
+    // 2. Check for next upcoming candidate
+    const now = new Date();
+    const upcomingCandidates = onlineCandidates
+      .map((c: any) => {
+        const startDateTime = getInterviewStartDateTime(c.interviewDate, c.interviewTime);
+        return { candidate: c, startDateTime };
+      })
+      .filter((item: any) => item.startDateTime && item.startDateTime > now)
+      .sort((a: any, b: any) => a.startDateTime!.getTime() - b.startDateTime!.getTime());
+
+    if (upcomingCandidates.length > 0) {
+      const upcomingCandidate = upcomingCandidates[0].candidate;
+      return {
+        link: upcomingCandidate.meetLink,
+        status: 'upcoming',
+        candidateName: upcomingCandidate.name,
+        timeInfo: `${formatShortDate(upcomingCandidate.interviewDate)} @ ${upcomingCandidate.interviewTime.split('-')[0].trim()}`
+      };
+    }
+
+    return {
+      link: null,
+      status: 'none',
+      candidateName: null,
+      timeInfo: null
+    };
+  };
 
   const categoryLink = selectedCategory ? (selectedCategory.meetLink || selectedGroup?.meetLink) : null;
   const isCategoryMeet = categoryLink ? isMeetingUrl(categoryLink) : false;
@@ -215,7 +370,7 @@ export function PanelCandidates() {
             {(selectedGroup.members || []).map((member: any) => {
               const isActive = member.id === selectedCategoryId;
               const count = (dashboardData?.candidates || []).filter(
-                (c: any) => c.panelId === member.id
+                (c: any) => isCandidateAssignedToPanel(c, member.id)
               ).length;
               return (
                 <button
@@ -256,7 +411,7 @@ export function PanelCandidates() {
             }}>
             
             <GlassCard className="p-4 mb-5">
-              <div className={`grid gap-4 ${showCategoryMeetBox ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <div>
                   <div className="flex items-center space-x-2.5 mb-2">
                     <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -279,43 +434,64 @@ export function PanelCandidates() {
                   </div>
                 </div>
 
-                {showCategoryMeetBox && categoryLink && (
-                  <div className="bg-white/50 rounded-xl p-3">
-                    <div className="flex items-center space-x-1.5 mb-1.5">
-                      {isCategoryMeet ? (
-                        <VideoIcon className="w-3 h-3 text-primary" />
-                      ) : (
-                        <MapPinIcon className="w-3 h-3 text-primary" />
-                      )}
-                      <div className="text-[10px] text-secondary/60 uppercase tracking-wider">
-                        {isCategoryMeet ? 'Google Meet' : 'Interview Venue'}
+                {(() => {
+                  const activeMeet = getActiveMeetLink(candidates);
+                  return (
+                    <div className="bg-white/50 rounded-xl p-3 flex flex-col justify-between border border-white/40 animate-fadeIn">
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          <span className="text-[10px] text-secondary/60 uppercase tracking-wider">
+                            {activeMeet.status === 'active' 
+                              ? 'Active Slot Link' 
+                              : activeMeet.status === 'upcoming' 
+                                ? 'Upcoming Slot Link' 
+                                : 'Meeting Link'}
+                          </span>
+                          {activeMeet.status === 'active' && (
+                            <span className="text-[8px] bg-red-500/10 text-red-500 font-bold px-1.5 py-0.5 rounded animate-pulse">
+                              Live: {activeMeet.candidateName}
+                            </span>
+                          )}
+                          {activeMeet.status === 'upcoming' && (
+                            <span className="text-[8px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded">
+                              Next: {activeMeet.candidateName}
+                            </span>
+                          )}
+                        </div>
+                        {activeMeet.link ? (
+                          <div className="flex flex-col mt-1">
+                            <code className="text-[11px] text-primary font-mono truncate block" title={activeMeet.link}>
+                              {activeMeet.link.replace('https://', '')}
+                            </code>
+                            {activeMeet.status === 'upcoming' && (
+                              <span className="text-[8px] text-secondary/50 font-medium truncate mt-0.5">
+                                {activeMeet.timeInfo}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-secondary/50 font-medium italic block py-0.5 mt-1">
+                            No schedule for current time slot
+                          </span>
+                        )}
                       </div>
-                    </div>
-                    <code className="text-[10px] text-primary font-mono block mb-2 break-all">
-                      {categoryLink}
-                    </code>
-                    <div className="flex gap-1.5">
-                      {isCategoryMeet ? (
-                        <button
-                          onClick={() => handleJoin(categoryLink)}
-                          className="flex-grow px-3 py-1.5 bg-primary text-white text-[11px] font-medium rounded-lg hover:bg-primary/90 transition-colors">
-                          Join Meet
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => copyLink(categoryLink)}
-                          className="flex-grow px-3 py-1.5 bg-primary text-white text-[11px] font-medium rounded-lg hover:bg-primary/90 transition-colors">
-                          Copy Venue
-                        </button>
+                      {activeMeet.link && (
+                        <div className="flex gap-1.5 mt-2">
+                          <button
+                            onClick={() => handleJoin(activeMeet.link)}
+                            className="flex-grow px-3 py-1 bg-primary text-white text-[10px] font-medium rounded-lg hover:bg-primary/90 transition-colors">
+                            Join Meet
+                          </button>
+                          <button
+                            onClick={() => copyLink(activeMeet.link)}
+                            className="px-2 py-1 bg-white/70 border border-white/60 text-secondary text-[10px] rounded-lg hover:bg-white/90 transition-colors">
+                            <CopyIcon className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
-                      <button
-                        onClick={() => copyLink(categoryLink)}
-                        className="px-2.5 py-1.5 bg-white/70 border border-white/60 text-secondary text-[11px] rounded-lg hover:bg-white/90 transition-colors">
-                        <CopyIcon className="w-3 h-3" />
-                      </button>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 <div className="bg-white/50 rounded-xl p-3 flex flex-col justify-between">
                   <div>
@@ -347,7 +523,7 @@ export function PanelCandidates() {
             }}
             className="mb-5">
             <GlassCard className="p-4">
-              <div className={`grid gap-4 ${showGroupMeetBox ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
+              <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <div className="flex items-center space-x-2.5 mb-2">
                     <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -366,43 +542,65 @@ export function PanelCandidates() {
                     {selectedGroup.description || 'No description available.'}
                   </div>
                 </div>
-                {showGroupMeetBox && groupLink && (
-                  <div className="bg-white/50 rounded-xl p-3">
-                    <div className="flex items-center space-x-1.5 mb-1.5">
-                      {isGroupMeet ? (
-                        <VideoIcon className="w-3 h-3 text-primary" />
-                      ) : (
-                        <MapPinIcon className="w-3 h-3 text-primary" />
-                      )}
-                      <div className="text-[10px] text-secondary/60 uppercase tracking-wider">
-                        {isGroupMeet ? 'Group Google Meet' : 'Group Venue'}
+
+                {(() => {
+                  const activeMeet = getActiveMeetLink(candidates);
+                  return (
+                    <div className="bg-white/50 rounded-xl p-3 flex flex-col justify-between border border-white/40 animate-fadeIn">
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          <span className="text-[10px] text-secondary/60 uppercase tracking-wider">
+                            {activeMeet.status === 'active' 
+                              ? 'Active Slot Link' 
+                              : activeMeet.status === 'upcoming' 
+                                ? 'Upcoming Slot Link' 
+                                : 'Meeting Link'}
+                          </span>
+                          {activeMeet.status === 'active' && (
+                            <span className="text-[8px] bg-red-500/10 text-red-500 font-bold px-1.5 py-0.5 rounded animate-pulse">
+                              Live: {activeMeet.candidateName}
+                            </span>
+                          )}
+                          {activeMeet.status === 'upcoming' && (
+                            <span className="text-[8px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded">
+                              Next: {activeMeet.candidateName}
+                            </span>
+                          )}
+                        </div>
+                        {activeMeet.link ? (
+                          <div className="flex flex-col mt-1">
+                            <code className="text-[11px] text-primary font-mono truncate block" title={activeMeet.link}>
+                              {activeMeet.link.replace('https://', '')}
+                            </code>
+                            {activeMeet.status === 'upcoming' && (
+                              <span className="text-[8px] text-secondary/50 font-medium truncate mt-0.5">
+                                {activeMeet.timeInfo}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-secondary/50 font-medium italic block py-0.5 mt-1">
+                            No schedule for current time slot
+                          </span>
+                        )}
                       </div>
-                    </div>
-                    <code className="text-[10px] text-primary font-mono block mb-2 break-all">
-                      {groupLink}
-                    </code>
-                    <div className="flex gap-1.5">
-                      {isGroupMeet ? (
-                        <button
-                          onClick={() => handleJoin(groupLink)}
-                          className="flex-grow px-3 py-1.5 bg-primary text-white text-[11px] font-medium rounded-lg hover:bg-primary/90 transition-colors">
-                          Join Meet
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => copyLink(groupLink)}
-                          className="flex-grow px-3 py-1.5 bg-primary text-white text-[11px] font-medium rounded-lg hover:bg-primary/90 transition-colors">
-                          Copy Venue
-                        </button>
+                      {activeMeet.link && (
+                        <div className="flex gap-1.5 mt-2">
+                          <button
+                            onClick={() => handleJoin(activeMeet.link)}
+                            className="flex-grow px-3 py-1 bg-primary text-white text-[10px] font-medium rounded-lg hover:bg-primary/90 transition-colors">
+                            Join Meet
+                          </button>
+                          <button
+                            onClick={() => copyLink(activeMeet.link)}
+                            className="px-2 py-1 bg-white/70 border border-white/60 text-secondary text-[10px] rounded-lg hover:bg-white/90 transition-colors">
+                            <CopyIcon className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
-                      <button
-                        onClick={() => copyLink(groupLink)}
-                        className="px-2.5 py-1.5 bg-white/70 border border-white/60 text-secondary text-[11px] rounded-lg hover:bg-white/90 transition-colors">
-                        <CopyIcon className="w-3 h-3" />
-                      </button>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </GlassCard>
           </motion.div>

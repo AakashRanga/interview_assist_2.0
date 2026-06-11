@@ -204,9 +204,7 @@ export function AdminPanels() {
           isDirect = String(c.panelId) === String(panelistId);
         }
       }
-      // Group assignment check
-      const isGroup = panelGroupId && String(c.panelGroupId) === String(panelGroupId);
-      return isDirect || isGroup;
+      return isDirect;
     });
   };
 

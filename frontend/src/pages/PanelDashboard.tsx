@@ -140,7 +140,27 @@ export function PanelDashboard() {
     meetLink: '',
     members: []
   };
-  const myCandidates = dashboardData?.candidates || [];
+  const isCandidateAssignedToPanel = (candidate: any, panelId: string | number) => {
+    if (!candidate.panelId) return false;
+    const targetId = String(panelId);
+    const candPanelIdStr = String(candidate.panelId);
+    if (candPanelIdStr.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(candPanelIdStr);
+        if (Array.isArray(parsed)) {
+          return parsed.map(String).includes(targetId);
+        }
+      } catch (e) {}
+    }
+    return candPanelIdStr === targetId;
+  };
+
+  const loggedInMember = currentPanel.members?.find((m: any) => m.name === userName);
+  const loggedInMemberId = loggedInMember ? loggedInMember.id : '';
+
+  const myCandidates = (dashboardData?.candidates || []).filter((c: any) => 
+    loggedInMemberId ? isCandidateAssignedToPanel(c, loggedInMemberId) : false
+  );
   
   const todayInterviews = myCandidates.filter((c: any) => {
     if (c.status !== 'Scheduled') return false;
@@ -212,6 +232,23 @@ export function PanelDashboard() {
     }
   };
 
+  const completedCount = myCandidates.filter((c: any) => 
+    c.status === 'Completed' || c.status === 'Selected' || c.status === 'Rejected'
+  ).length;
+
+  const pendingFeedbackCount = myCandidates.filter((c: any) => {
+    if (c.status !== 'Scheduled' || !c.interviewDate) return false;
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const intDate = new Date(c.interviewDate);
+      intDate.setHours(0, 0, 0, 0);
+      return intDate < today;
+    } catch (e) {
+      return false;
+    }
+  }).length;
+
   if (loading) {
     return (
       <DashboardLayout role="panel" title="Panel Dashboard" userName={userName}>
@@ -259,7 +296,7 @@ export function PanelDashboard() {
         <StatCard
           icon={UsersIcon}
           label="Assigned Candidates"
-          value={dashboardData?.stats?.assigned_count ?? 0}
+          value={myCandidates.length}
           color="primary" />
         
         <StatCard
@@ -271,13 +308,13 @@ export function PanelDashboard() {
         <StatCard
           icon={ClockIcon}
           label="Pending Feedback"
-          value={dashboardData?.stats?.pending_feedback_count ?? 0}
+          value={pendingFeedbackCount}
           color="yellow" />
         
         <StatCard
           icon={CheckCircleIcon}
           label="Completed"
-          value={dashboardData?.stats?.completed_count ?? 0}
+          value={completedCount}
           color="green" />
         
       </div>
