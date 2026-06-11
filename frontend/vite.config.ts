@@ -54,6 +54,15 @@ export default defineConfig({
           }
         }
       },
+      '/feedback': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        bypass: (req) => {
+          if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
+            return '/interview_assist/index.html';
+          }
+        }
+      },
       '/user': {
         target: 'http://localhost:8000',
         changeOrigin: true,

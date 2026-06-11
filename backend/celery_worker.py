@@ -21,6 +21,7 @@ from app.models.job_role import JobRole
 from app.models.interview_schedule import InterviewSchedule
 from app.models.panel_group import PanelGroup
 from app.models.panel import Panel
+from app.models.panel_feedback import PanelFeedback
 
 
 # Import tasks to register them with Celery

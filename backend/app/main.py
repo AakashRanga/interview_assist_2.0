@@ -9,9 +9,11 @@ from app.routes.resume_routes import router as resume_router
 from app.routes.auth_routes import router as auth_router
 from app.routes.admin_routes import router as admin_router
 from app.routes.notification_routes import router as notification_router
+from app.routes.feedback_routes import router as feedback_router
 
 from app.database import engine, Base
 from app.models.panel_group import PanelGroup
+from app.models.panel_feedback import PanelFeedback
 
 Base.metadata.create_all(bind=engine)
 
@@ -180,6 +182,7 @@ app.include_router(auth_router)
 app.include_router(resume_router)
 app.include_router(admin_router)
 app.include_router(notification_router)
+app.include_router(feedback_router)
 
 @app.get("/")
 def home():

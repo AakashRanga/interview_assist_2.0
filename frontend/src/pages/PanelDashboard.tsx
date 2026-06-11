@@ -610,7 +610,7 @@ export function PanelDashboard() {
                   </div>
                   <Badge
                   variant={
-                  candidate.status === 'Selected' ?
+                  candidate.status === 'Selected' || candidate.status === 'Hired' ?
                   'success' :
                   candidate.status === 'Rejected' ?
                   'danger' :

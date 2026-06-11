@@ -22,13 +22,8 @@ import {
 'lucide-react';
 import { Badge } from '../ui/Badge';
 import type { Candidate } from '../../data/mockData';
-import {
-  getFeedbackBySubmitter,
-  getFeedbackForCandidate,
-  submitFeedback,
-  type FeedbackDecision,
-  type FeedbackEntry } from
-'../../data/feedbackStore';
+import { type FeedbackDecision } from '../../data/feedbackStore';
+import { API_BASE_URL } from '../../config';
 interface Props {
   candidate: Candidate | null;
   onClose: () => void;
@@ -36,6 +31,7 @@ interface Props {
   viewerRole?: 'panel' | 'admin';
   /** Required when viewerRole is 'panel' — used to attribute submitted feedback. */
   viewerName?: string;
+  onStatusUpdate?: (newStatus: string) => void;
 }
 const DECISION_META: Record<
   FeedbackDecision,
@@ -94,28 +90,61 @@ export function CandidateDetailModal({
   candidate,
   onClose,
   viewerRole,
-  viewerName
+  viewerName,
+  onStatusUpdate
 }: Props) {
   const [decision, setDecision] = useState<FeedbackDecision | null>(null);
   const [comment, setComment] = useState('');
-  // Bump this to force re-read from the module-level store after a submit
   const [version, setVersion] = useState(0);
-  const allFeedback = useMemo<FeedbackEntry[]>(() => {
-    if (!candidate) return [];
-    return getFeedbackForCandidate(candidate.id);
-  }, [candidate, version]);
-  const ownFeedback = useMemo<FeedbackEntry | undefined>(() => {
-    if (!candidate || viewerRole !== 'panel' || !viewerName) return undefined;
-    return getFeedbackBySubmitter(candidate.id, viewerName);
-  }, [candidate, viewerRole, viewerName, version]);
-  // Reset form state whenever the open candidate changes
+  const [ownFeedback, setOwnFeedback] = useState<any>(null);
+  const [allFeedback, setAllFeedback] = useState<any[]>([]);
+  const [isAssigned, setIsAssigned] = useState(true);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+
   useEffect(() => {
     if (!candidate) return;
-    setDecision(ownFeedback?.decision ?? null);
-    setComment(ownFeedback?.comment ?? '');
-  }, [candidate?.id, ownFeedback?.id]);
-  const handleSubmit = () => {
-    if (!candidate || !viewerName) return;
+    
+    const loadFeedbackData = async () => {
+      setFeedbackLoading(true);
+      try {
+        if (viewerRole === 'panel') {
+          const userStr = localStorage.getItem('user');
+          if (userStr) {
+            const u = JSON.parse(userStr);
+            const res = await fetch(`${API_BASE_URL}/feedback/candidate/${candidate.id}/user/${u.id}`);
+            if (res.ok) {
+              const data = await res.json();
+              setIsAssigned(data.is_assigned);
+              if (data.feedback) {
+                setOwnFeedback(data.feedback);
+                setDecision(data.feedback.decision);
+                setComment(data.feedback.feedback_text);
+              } else {
+                setOwnFeedback(null);
+                setDecision(null);
+                setComment('');
+              }
+            }
+          }
+        } else if (viewerRole === 'admin') {
+          const res = await fetch(`${API_BASE_URL}/feedback/candidate/${candidate.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            setAllFeedback(data);
+          }
+        }
+      } catch (err) {
+        console.error("Error loading feedback", err);
+      } finally {
+        setFeedbackLoading(false);
+      }
+    };
+    
+    loadFeedbackData();
+  }, [candidate?.id, viewerRole, version]);
+
+  const handleSubmit = async () => {
+    if (!candidate) return;
     if (!decision) {
       toast.error('Please pick a decision');
       return;
@@ -124,14 +153,65 @@ export function CandidateDetailModal({
       toast.error('Please add a comment');
       return;
     }
-    submitFeedback({
-      candidateId: candidate.id,
-      decision,
-      comment: comment.trim(),
-      submittedBy: viewerName
-    });
-    setVersion((v) => v + 1);
-    toast.success(ownFeedback ? 'Feedback updated' : 'Feedback submitted');
+
+    const userStr = localStorage.getItem('user');
+    if (!userStr) {
+      toast.error('No logged-in user session found');
+      return;
+    }
+
+    try {
+      const u = JSON.parse(userStr);
+      const res = await fetch(`${API_BASE_URL}/feedback/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidate_id: parseInt(candidate.id),
+          user_id: u.id,
+          feedback_text: comment.trim(),
+          decision: decision,
+          rating: decision === 'Selected' ? 5 : decision === 'Hold' ? 3 : 1
+        })
+      });
+
+      if (res.ok) {
+        setVersion((v) => v + 1);
+        toast.success(ownFeedback ? 'Feedback updated successfully' : 'Feedback submitted successfully');
+        if (onStatusUpdate) {
+          onStatusUpdate('Completed');
+        }
+      } else {
+        const err = await res.json();
+        toast.error(err.detail || 'Failed to submit feedback');
+      }
+    } catch (err) {
+      toast.error('Error submitting feedback');
+    }
+  };
+
+  const handleAdminDecision = async (status: 'Hired' | 'Rejected') => {
+    if (!candidate) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/candidates/${candidate.id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        toast.success(`Candidate selection status updated to ${status}`);
+        if (onStatusUpdate) {
+          onStatusUpdate(status);
+        }
+        onClose();
+      } else {
+        const errData = await res.json();
+        toast.error(errData.detail || 'Failed to update status');
+      }
+    } catch (err) {
+      toast.error('Error updating status');
+    }
   };
   return (
     <AnimatePresence>
@@ -199,7 +279,7 @@ export function CandidateDetailModal({
                       </h2>
                       <Badge
                       variant={
-                      candidate.status === 'Selected' ?
+                      candidate.status === 'Selected' || candidate.status === 'Hired' ?
                       'success' :
                       candidate.status === 'Rejected' ?
                       'danger' :
@@ -386,7 +466,7 @@ export function CandidateDetailModal({
                 </div>
 
                 {/* === FEEDBACK SECTION === */}
-                {viewerRole === 'panel' &&
+                {viewerRole === 'panel' && isAssigned &&
               <div className="border-t border-slate-200 pt-5">
                     <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                       <div className="flex items-center gap-1.5">
@@ -398,7 +478,7 @@ export function CandidateDetailModal({
                       {ownFeedback &&
                   <span className="text-[10px] text-slate-500">
                           Last submitted{' '}
-                          {formatRelative(ownFeedback.submittedAt)}
+                          {formatRelative(ownFeedback.created_at)}
                         </span>
                   }
                     </div>
@@ -493,8 +573,9 @@ export function CandidateDetailModal({
 
                 <div className="space-y-2.5">
                         {allFeedback.map((entry) => {
-                    const meta = DECISION_META[entry.decision];
+                    const meta = DECISION_META[entry.decision as FeedbackDecision] || DECISION_META['Hold'];
                     const Icon = meta.icon;
+                    const pName = entry.panel_name || 'Panelist';
                     return (
                       <div
                         key={entry.id}
@@ -503,14 +584,14 @@ export function CandidateDetailModal({
                               <div className="flex items-start justify-between gap-3 mb-2 flex-wrap">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center flex-shrink-0">
-                                    {initials(entry.submittedBy)}
+                                    {initials(pName)}
                                   </div>
                                   <div className="min-w-0">
                                     <div className="text-xs font-semibold text-slate-900 truncate">
-                                      {entry.submittedBy}
+                                      {pName}
                                     </div>
                                     <div className="text-[10px] text-slate-500">
-                                      {formatRelative(entry.submittedAt)}
+                                      {formatRelative(entry.created_at)}
                                     </div>
                                   </div>
                                 </div>
@@ -522,7 +603,7 @@ export function CandidateDetailModal({
                                 </span>
                               </div>
                               <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">
-                                {entry.comment}
+                                {entry.feedback_text}
                               </p>
                             </div>);
 
@@ -648,12 +729,30 @@ export function CandidateDetailModal({
                   year: 'numeric'
                 })}
                 </div>
-                <button
-                onClick={onClose}
-                className="px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors">
-                
-                  Close
-                </button>
+                <div className="flex items-center gap-2">
+                  {viewerRole === 'admin' && candidate.status !== 'Hired' && candidate.status !== 'Rejected' && (
+                    <>
+                      <button
+                        onClick={() => handleAdminDecision('Hired')}
+                        className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 active:bg-emerald-800 transition-colors shadow-sm"
+                      >
+                        Select (Hire)
+                      </button>
+                      <button
+                        onClick={() => handleAdminDecision('Rejected')}
+                        className="px-4 py-2 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 active:bg-rose-800 transition-colors shadow-sm"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>

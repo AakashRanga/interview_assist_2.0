@@ -715,6 +715,23 @@ def update_candidate_status(candidate_id: int, data: UpdateCandidateStatusReques
             except Exception as notif_error:
                 print(f"Failed to create notification: {notif_error}")
         
+        # Send selection/hired email notification if status is "Hired"
+        if data.status == "Hired":
+            from app.services.email_service import send_email
+            email_body = (
+                f"Dear {candidate.full_name},\n\n"
+                f"Congratulations! We are pleased to inform you that you have been selected "
+                f"for the {application.role.title if application and application.role else 'position'} role.\n\n"
+                f"Our HR team will reach out to you shortly with the official offer letter and next steps.\n\n"
+                f"Best Regards,\n"
+                f"Recruitment Team"
+            )
+            try:
+                send_email(candidate.email, "Job Offer Selection - Congratulations!", email_body)
+                print(f"Sent hiring email to candidate {candidate.email}")
+            except Exception as email_err:
+                print(f"Failed to send hiring email to candidate: {email_err}")
+
         db.commit()
         return {"status": "success", "message": f"Candidate status updated to {data.status}"}
     except Exception as e:

@@ -439,7 +439,8 @@ export function AdminCandidates() {
     'Selected',
     'Scheduled',
     'Completed',
-    'Rejected'
+    'Rejected',
+    'Hired'
   ];
 
   const counts = {
@@ -448,7 +449,8 @@ export function AdminCandidates() {
     selected: candidates.filter((c) => c.status === 'Selected').length,
     scheduled: candidates.filter((c) => c.status === 'Scheduled').length,
     completed: candidates.filter((c) => c.status === 'Completed').length,
-    rejected: candidates.filter((c) => c.status === 'Rejected').length
+    rejected: candidates.filter((c) => c.status === 'Rejected').length,
+    hired: candidates.filter((c) => c.status === 'Hired').length
   };
 
   return (
@@ -473,7 +475,7 @@ export function AdminCandidates() {
       </motion.div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
         {[
           {
             label: 'Total',
@@ -504,6 +506,12 @@ export function AdminCandidates() {
             value: counts.rejected,
             icon: XCircleIcon,
             color: 'red'
+          },
+          {
+            label: 'Hired',
+            value: counts.hired,
+            icon: CheckCircleIcon,
+            color: 'green'
           }].
           map((s, i) => {
             const Icon = s.icon;
@@ -761,7 +769,7 @@ export function AdminCandidates() {
                         <td className="px-4 py-3">
                           <Badge
                             variant={
-                              c.status === 'Selected' ?
+                              c.status === 'Selected' || c.status === 'Hired' ?
                                 'success' :
                                 c.status === 'Rejected' ?
                                   'danger' :
@@ -1033,7 +1041,8 @@ export function AdminCandidates() {
       <CandidateDetailModal
         candidate={feedbackViewOpen ? selectedCandidate : null}
         onClose={() => setFeedbackViewOpen(false)}
-        viewerRole="admin" />
+        viewerRole="admin"
+        onStatusUpdate={fetchCandidates} />
 
       {openMenu && menuCoords && selectedCandidate && createPortal(
         <div

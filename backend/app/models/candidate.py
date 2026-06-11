@@ -31,6 +31,7 @@ class Candidate(Base):
     interview_schedules = relationship("InterviewSchedule", back_populates="candidate")
     education_list = relationship("CandidateEducation", back_populates="candidate", cascade="all, delete-orphan")
     experience_list = relationship("CandidateExperience", back_populates="candidate", cascade="all, delete-orphan")
+    feedbacks = relationship("PanelFeedback", back_populates="candidate", cascade="all, delete-orphan")
 
 
 class CandidateEducation(Base):

@@ -16,7 +16,8 @@ import {
   VideoIcon,
   BriefcaseIcon,
   MapPinIcon,
-  MailIcon } from
+  MailIcon,
+  XCircleIcon } from
 'lucide-react';
 export function CandidateDashboard() {
   const navigate = useNavigate();
@@ -157,6 +158,156 @@ export function CandidateDashboard() {
   const applicationStatus = dashboardData?.latest_application?.status ?? '';
   const isScheduled = applicationStatus === 'Scheduled' || applicationStatus === 'scheduled';
 
+  const getStatusConfig = (status: string) => {
+    const normalized = status ? status.charAt(0).toUpperCase() + status.slice(1).toLowerCase() : '';
+    switch (normalized) {
+      case 'Applied':
+        return {
+          badge: 'Under Review',
+          variant: 'warning' as const,
+          icon: ClockIcon,
+          iconClass: 'text-warning',
+          text: 'Your application is being reviewed by the panel. You will be notified once an interview is scheduled.'
+        };
+      case 'Selected':
+        return {
+          badge: 'Shortlisted',
+          variant: 'primary' as const,
+          icon: ClockIcon,
+          iconClass: 'text-primary',
+          text: 'Congratulations! You have been shortlisted for the interview. The panel will schedule the slot shortly.'
+        };
+      case 'Completed':
+        return {
+          badge: 'Interview Completed',
+          variant: 'info' as const,
+          icon: CheckCircleIcon,
+          iconClass: 'text-cyan',
+          text: 'You have completed your interview! The feedback has been submitted, and the recruitment team is evaluating the final decision.'
+        };
+      case 'Hired':
+        return {
+          badge: 'Hired',
+          variant: 'success' as const,
+          icon: CheckCircleIcon,
+          iconClass: 'text-green-600',
+          text: 'Congratulations! We are pleased to inform you that you have been selected for this position. Our HR team will reach out to you shortly.'
+        };
+      case 'Rejected':
+        return {
+          badge: 'Rejected',
+          variant: 'danger' as const,
+          icon: XCircleIcon,
+          iconClass: 'text-red-600',
+          text: 'Thank you for your interest. Unfortunately, we will not be moving forward with your application at this time.'
+        };
+      default:
+        return {
+          badge: status || 'Under Review',
+          variant: 'neutral' as const,
+          icon: ClockIcon,
+          iconClass: 'text-neutral',
+          text: 'Your application is under process.'
+        };
+    }
+  };
+
+  const getTimelineSteps = () => {
+    const status = applicationStatus ? applicationStatus.charAt(0).toUpperCase() + applicationStatus.slice(1).toLowerCase() : '';
+    const scheduleDateStr = dashboardData?.interview_schedule?.date
+      ? new Date(dashboardData.interview_schedule.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+      : '';
+
+    // Step 1: Application Submitted
+    const step1 = {
+      status: 'completed' as const,
+      label: 'Application Submitted',
+      date: dashboardData?.latest_application?.created_at
+        ? new Date(dashboardData.latest_application.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        : 'N/A',
+      icon: CheckCircleIcon
+    };
+
+    // Step 2: Application Under Review
+    let step2Status: 'completed' | 'active' | 'pending' = 'pending';
+    let step2Date = 'Pending';
+    if (status === 'applied') {
+      step2Status = 'active';
+      step2Date = 'In Progress';
+    } else if (status) {
+      step2Status = 'completed';
+      step2Date = 'Completed';
+    }
+    const step2 = {
+      status: step2Status,
+      label: 'Application Under Review',
+      date: step2Date,
+      icon: step2Status === 'completed' ? CheckCircleIcon : ClockIcon
+    };
+
+    // Step 3: Interview Scheduled
+    let step3Status: 'completed' | 'active' | 'pending' = 'pending';
+    let step3Date = 'Pending';
+    if (status === 'selected') {
+      step3Status = 'active';
+      step3Date = 'In Progress';
+    } else if (status === 'scheduled') {
+      step3Status = 'completed';
+      step3Date = scheduleDateStr || 'Scheduled';
+    } else if (status === 'completed' || status === 'hired' || status === 'rejected') {
+      step3Status = 'completed';
+      step3Date = scheduleDateStr || 'Completed';
+    }
+    const step3 = {
+      status: step3Status,
+      label: 'Interview Scheduled',
+      date: step3Date,
+      icon: step3Status === 'completed' ? CheckCircleIcon : CalendarIcon
+    };
+
+    // Step 4: Interview Completed
+    let step4Status: 'completed' | 'active' | 'pending' = 'pending';
+    let step4Date = 'Pending';
+    if (status === 'scheduled') {
+      step4Status = 'active';
+      step4Date = 'In Progress';
+    } else if (status === 'completed' || status === 'hired' || status === 'rejected') {
+      step4Status = 'completed';
+      step4Date = 'Completed';
+    }
+    const step4 = {
+      status: step4Status,
+      label: 'Interview Completed',
+      date: step4Date,
+      icon: step4Status === 'completed' ? CheckCircleIcon : ClockIcon
+    };
+
+    // Step 5: Final Decision
+    let step5Status: 'completed' | 'active' | 'pending' = 'pending';
+    let step5Date = 'Pending';
+    let step5Icon = ClockIcon;
+    if (status === 'completed') {
+      step5Status = 'active';
+      step5Date = 'In Progress';
+    } else if (status === 'hired') {
+      step5Status = 'completed';
+      step5Date = 'Selected (Hired)';
+      step5Icon = CheckCircleIcon;
+    } else if (status === 'rejected') {
+      step5Status = 'completed';
+      step5Date = 'Not Selected';
+      step5Icon = XCircleIcon;
+    }
+    const step5 = {
+      status: step5Status,
+      label: 'Final Decision',
+      date: step5Date,
+      icon: step5Icon
+    };
+
+    return [step1, step2, step3, step4, step5];
+  };
+
   const handleJoinInterview = () => {
     if (isOffline) {
       if (!venueAddress) {
@@ -270,67 +421,71 @@ export function CandidateDashboard() {
           )}
 
           {/* Application Status - Applied but not scheduled */}
-          {!loading && hasApplied && !isScheduled && (
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}>
-              <GlassCard className="p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-secondary">
-                    Application Status
-                  </h3>
-                  <Badge variant="warning" size="sm">
-                    Under Review
-                  </Badge>
-                </div>
-
-                <div className="flex items-start gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
-                    <BriefcaseIcon className="w-5 h-5 text-primary" />
+          {!loading && hasApplied && !isScheduled && (() => {
+            const config = getStatusConfig(applicationStatus);
+            const IconComponent = config.icon;
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}>
+                <GlassCard className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-secondary">
+                      Application Status
+                    </h3>
+                    <Badge variant={config.variant} size="sm">
+                      {config.badge}
+                    </Badge>
                   </div>
-                  <div className="flex-grow min-w-0">
-                    <div className="text-sm font-semibold text-secondary mb-1">
-                      {dashboardData?.latest_application?.role_title ?? 'Applied Role'}
+
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                      <BriefcaseIcon className="w-5 h-5 text-primary" />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <div className="text-[10px] text-secondary/60 uppercase tracking-wider mb-0.5">
-                          Job Type
+                    <div className="flex-grow min-w-0">
+                      <div className="text-sm font-semibold text-secondary mb-1">
+                        {dashboardData?.latest_application?.role_title ?? 'Applied Role'}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <div className="text-[10px] text-secondary/60 uppercase tracking-wider mb-0.5">
+                            Job Type
+                          </div>
+                          <div className="text-xs font-medium text-secondary flex items-center gap-1">
+                            <VideoIcon className="w-3 h-3" />
+                            {dashboardData?.latest_application?.job_type ?? 'N/A'}
+                          </div>
                         </div>
-                        <div className="text-xs font-medium text-secondary flex items-center gap-1">
-                          <VideoIcon className="w-3 h-3" />
-                          {dashboardData?.latest_application?.job_type ?? 'N/A'}
+                        <div>
+                          <div className="text-[10px] text-secondary/60 uppercase tracking-wider mb-0.5">
+                            Applied On
+                          </div>
+                          <div className="text-xs font-medium text-secondary">
+                            {dashboardData?.latest_application?.created_at
+                              ? new Date(dashboardData.latest_application.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                              : 'N/A'}
+                          </div>
                         </div>
                       </div>
-                      <div>
-                        <div className="text-[10px] text-secondary/60 uppercase tracking-wider mb-0.5">
-                          Applied On
-                        </div>
-                        <div className="text-xs font-medium text-secondary">
-                          {dashboardData?.latest_application?.created_at
-                            ? new Date(dashboardData.latest_application.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-                            : 'N/A'}
-                        </div>
-                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="bg-white/60 rounded-xl p-3 mb-3">
-                  <div className="text-[10px] text-secondary/60 uppercase tracking-wider mb-1.5">
-                    Status
+                  <div className="bg-white/60 rounded-xl p-3 mb-3">
+                    <div className="text-[10px] text-secondary/60 uppercase tracking-wider mb-1.5">
+                      Status
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <IconComponent className={`w-4 h-4 ${config.iconClass}`} />
+                      <span className="text-xs font-medium text-secondary">
+                        {config.text}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <ClockIcon className="w-4 h-4 text-warning" />
-                    <span className="text-xs font-medium text-secondary">
-                      Your application is being reviewed by the panel. You will be notified once an interview is scheduled.
-                    </span>
-                  </div>
-                </div>
-              </GlassCard>
-            </motion.div>
-          )}
+                </GlassCard>
+              </motion.div>
+            );
+          })()}
 
           {/* Interview Scheduled */}
           {!loading && hasApplied && isScheduled && (
@@ -486,41 +641,7 @@ export function CandidateDashboard() {
                 {hasApplied ? 'Application Timeline' : 'Get Started'}
               </h3>
               <div className="space-y-4">
-                {(hasApplied ? [
-                {
-                  status: 'completed',
-                  label: 'Application Submitted',
-                  date: dashboardData?.latest_application?.created_at
-                    ? new Date(dashboardData.latest_application.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-                    : 'N/A',
-                  icon: CheckCircleIcon
-                },
-                {
-                  status: isScheduled ? 'completed' : 'active',
-                  label: 'Application Under Review',
-                  date: !isScheduled ? 'In Progress' : 'Completed',
-                  icon: isScheduled ? CheckCircleIcon : ClockIcon
-                },
-                {
-                  status: isScheduled ? 'active' : 'pending',
-                  label: 'Interview Scheduled',
-                  date: isScheduled && dashboardData?.interview_schedule?.date
-                    ? new Date(dashboardData.interview_schedule.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-                    : 'Pending',
-                  icon: isScheduled ? CalendarIcon : ClockIcon
-                },
-                {
-                  status: 'pending',
-                  label: 'Interview Completed',
-                  date: 'Pending',
-                  icon: ClockIcon
-                },
-                {
-                  status: 'pending',
-                  label: 'Final Decision',
-                  date: 'Pending',
-                  icon: ClockIcon
-                }] : [
+                {(hasApplied ? getTimelineSteps() : [
                 {
                   status: 'pending',
                   label: 'Browse Available Jobs',
