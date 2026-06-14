@@ -18,7 +18,8 @@ import {
   ThumbsUpIcon,
   ThumbsDownIcon,
   PauseCircleIcon,
-  MessageSquareIcon } from
+  MessageSquareIcon,
+  XCircleIcon } from
 'lucide-react';
 import { Badge } from '../ui/Badge';
 import type { Candidate } from '../../data/mockData';
@@ -100,6 +101,8 @@ export function CandidateDetailModal({
   const [allFeedback, setAllFeedback] = useState<any[]>([]);
   const [isAssigned, setIsAssigned] = useState(true);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [showRejectionInput, setShowRejectionInput] = useState(false);
+  const [rejectionReasonText, setRejectionReasonText] = useState('');
 
   useEffect(() => {
     if (!candidate) return;
@@ -189,7 +192,7 @@ export function CandidateDetailModal({
     }
   };
 
-  const handleAdminDecision = async (status: 'Hired' | 'Rejected') => {
+  const handleAdminDecision = async (status: 'Hired' | 'Rejected', rejectionReason?: string) => {
     if (!candidate) return;
     try {
       const res = await fetch(`${API_BASE_URL}/admin/candidates/${candidate.id}/status`, {
@@ -197,13 +200,18 @@ export function CandidateDetailModal({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          status,
+          rejection_reason: rejectionReason
+        }),
       });
       if (res.ok) {
         toast.success(`Candidate selection status updated to ${status}`);
         if (onStatusUpdate) {
           onStatusUpdate(status);
         }
+        setShowRejectionInput(false);
+        setRejectionReasonText('');
         onClose();
       } else {
         const errData = await res.json();
@@ -322,6 +330,19 @@ export function CandidateDetailModal({
 
               {/* Body */}
               <div className="flex-grow overflow-y-auto p-6 space-y-5 bg-white">
+                {/* Rejection Reason */}
+                {candidate.status === 'Rejected' && candidate.rejectionReason && (
+                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-xs text-rose-800">
+                    <div className="flex items-center gap-1.5 font-semibold uppercase tracking-wider text-[10px] text-rose-600 mb-1.5">
+                      <XCircleIcon className="w-3.5 h-3.5" />
+                      Reason for Rejection
+                    </div>
+                    <p className="font-medium whitespace-pre-line leading-relaxed">
+                      {candidate.rejectionReason}
+                    </p>
+                  </div>
+                )}
+
                 {/* Profile completion */}
                 <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
                   <div className="flex items-center justify-between mb-2">
@@ -720,38 +741,78 @@ export function CandidateDetailModal({
               </div>
 
               {/* Footer actions */}
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3 flex-shrink-0">
-                <div className="text-[10px] text-slate-500">
-                  Applied{' '}
-                  {new Date(candidate.appliedDate).toLocaleDateString('en-US', {
-                  month: 'long',
-                  day: 'numeric',
-                  year: 'numeric'
-                })}
-                </div>
-                <div className="flex items-center gap-2">
-                  {viewerRole === 'admin' && candidate.status !== 'Hired' && candidate.status !== 'Rejected' && (
-                    <>
+              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-col gap-3 flex-shrink-0">
+                {showRejectionInput && (
+                  <div className="w-full space-y-2">
+                    <label className="block text-[10px] font-medium text-secondary/70 uppercase tracking-wider">
+                      Reason for Rejection
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={rejectionReasonText}
+                      onChange={(e) => setRejectionReasonText(e.target.value)}
+                      placeholder="Please enter why this candidate is being rejected..."
+                      className="w-full px-3 py-2 bg-black border border-slate-200 rounded-xl text-xs text-secondary placeholder:text-neutral/50 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none font-medium"
+                    />
+                  </div>
+                )}
+                <div className="flex items-center justify-between w-full gap-3">
+                  <div className="text-[10px] text-slate-500">
+                    Applied{' '}
+                    {new Date(candidate.appliedDate).toLocaleDateString('en-US', {
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric'
+                  })}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {viewerRole === 'admin' && candidate.status !== 'Hired' && candidate.status !== 'Rejected' && (
+                      <>
+                        {!showRejectionInput ? (
+                          <>
+                            <button
+                              onClick={() => handleAdminDecision('Hired')}
+                              className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 active:bg-emerald-800 transition-colors shadow-sm"
+                            >
+                              Select (Hire)
+                            </button>
+                            <button
+                              onClick={() => setShowRejectionInput(true)}
+                              className="px-4 py-2 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 active:bg-rose-800 transition-colors shadow-sm"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleAdminDecision('Rejected', rejectionReasonText)}
+                              className="px-4 py-2 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 active:bg-rose-800 transition-colors shadow-sm"
+                            >
+                              Confirm Reject
+                            </button>
+                            <button
+                              onClick={() => {
+                                setShowRejectionInput(false);
+                                setRejectionReasonText('');
+                              }}
+                              className="px-4 py-2 bg-slate-200 text-slate-700 text-xs font-medium rounded-lg hover:bg-slate-300 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        )}
+                      </>
+                    )}
+                    {!showRejectionInput && (
                       <button
-                        onClick={() => handleAdminDecision('Hired')}
-                        className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 active:bg-emerald-800 transition-colors shadow-sm"
+                        onClick={onClose}
+                        className="px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors"
                       >
-                        Select (Hire)
+                        Close
                       </button>
-                      <button
-                        onClick={() => handleAdminDecision('Rejected')}
-                        className="px-4 py-2 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 active:bg-rose-800 transition-colors shadow-sm"
-                      >
-                        Reject
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={onClose}
-                    className="px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors"
-                  >
-                    Close
-                  </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

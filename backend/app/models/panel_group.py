@@ -10,6 +10,7 @@ class PanelGroup(Base):
     name = Column(String(100), nullable=False, unique=True, index=True)
     description = Column(String(255), nullable=True)
     meet_link = Column(String(500), nullable=True)
+    max_candidates = Column(Integer, nullable=True, default=0)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     panels = relationship("Panel", back_populates="panel_group")

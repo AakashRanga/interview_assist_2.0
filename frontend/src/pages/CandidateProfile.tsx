@@ -902,12 +902,12 @@ export function CandidateProfile() {
                   <Input
                     label="Phone"
                     value={personalInfo.phone}
-                    disabled />
+                    onChange={(e) => setPersonalInfo({ ...personalInfo, phone: e.target.value })} />
                   
                   <Input
                     label="Location"
                     value={personalInfo.location}
-                    disabled />
+                    onChange={(e) => setPersonalInfo({ ...personalInfo, location: e.target.value })} />
                   
                 </div>
               </GlassCard>

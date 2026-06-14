@@ -6,6 +6,7 @@ from app.models.panel_feedback import PanelFeedback
 from app.models.panel import Panel
 from app.models.candidate import Candidate
 from app.models.candidate_application import CandidateApplication
+from app.models.interview_schedule import InterviewSchedule
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
@@ -53,7 +54,31 @@ def submit_feedback(data: FeedbackSubmitRequest):
                 detail="You can only submit feedback for candidates directly assigned to you."
             )
 
-        # 4. Check if feedback already exists for this candidate by this panel member
+        # 4. Find the active schedule and mark it completed
+        schedule = db.query(InterviewSchedule).filter(
+            InterviewSchedule.candidate_id == candidate.id,
+            InterviewSchedule.interview_status.in_(["pending", "scheduled"])
+        ).order_by(InterviewSchedule.created_at.desc()).first()
+        if schedule:
+            schedule.interview_status = "completed"
+            db.add(schedule)
+
+        # 5. Auto-advance candidate's current_level to next round if decision is "Selected"
+        if data.decision == "Selected":
+            application = db.query(CandidateApplication).filter(
+                CandidateApplication.candidate_id == candidate.id
+            ).order_by(CandidateApplication.created_at.desc()).first()
+            if application and application.role:
+                from app.routes.admin_routes import parse_role_levels
+                role_levels = parse_role_levels(application.role.level)
+                curr = candidate.current_level or "Level 1"
+                if curr in role_levels:
+                    idx = role_levels.index(curr)
+                    if idx + 1 < len(role_levels):
+                        candidate.current_level = role_levels[idx + 1]
+                        db.add(candidate)
+
+        # 6. Check if feedback already exists for this candidate by this panel member
         existing = db.query(PanelFeedback).filter(
             PanelFeedback.candidate_id == candidate.id,
             PanelFeedback.panel_id == panel.id

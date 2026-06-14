@@ -121,7 +121,7 @@ export function AdminPanels() {
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupDescription, setNewGroupDescription] = useState('');
-  const [newGroupMeetLink, setNewGroupMeetLink] = useState('');
+  const [newGroupMaxCandidates, setNewGroupMaxCandidates] = useState<number>(0);
 
   const [addMemberOpen, setAddMemberOpen] = useState<number | null>(null); // PanelGroup ID
   const [selectedPanelistId, setSelectedPanelistId] = useState<string>('');
@@ -382,7 +382,7 @@ export function AdminPanels() {
         body: JSON.stringify({
           name: newGroupName,
           description: newGroupDescription,
-          meet_link: newGroupMeetLink
+          max_candidates: newGroupMaxCandidates
         })
       });
       if (res.ok) {
@@ -390,7 +390,7 @@ export function AdminPanels() {
         setCreateGroupOpen(false);
         setNewGroupName('');
         setNewGroupDescription('');
-        setNewGroupMeetLink('');
+        setNewGroupMaxCandidates(0);
         fetchPanelGroups();
       } else {
         const errData = await res.json();
@@ -713,7 +713,8 @@ export function AdminPanels() {
               <div className="grid sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
                 {panelGroups.map((group, idx) => {
                   const currentLoad = getGroupLoad(group.id);
-                  const loadPct = Math.min((currentLoad / 10) * 100, 100);
+                  const maxCap = group.max_candidates || 10;
+                  const loadPct = Math.min((currentLoad / maxCap) * 100, 100);
                   const isSelected = group.id === selectedGroupId;
 
                   return (
@@ -851,14 +852,14 @@ export function AdminPanels() {
                               Load Bar
                             </span>
                             <span className="font-medium text-secondary">
-                              {currentLoad}/10
+                              {currentLoad}/{maxCap}
                             </span>
                           </div>
                           <div className="w-full h-1.5 bg-white/50 rounded-full overflow-hidden">
                             <motion.div
                               initial={{ width: 0 }}
                               animate={{ width: `${loadPct}%` }}
-                              className={`h-full ${currentLoad >= 10 ? 'bg-red-500' : currentLoad > 7 ? 'bg-yellow-500' : 'bg-primary'
+                              className={`h-full ${currentLoad >= maxCap ? 'bg-red-500' : currentLoad > maxCap * 0.7 ? 'bg-yellow-500' : 'bg-primary'
                                 }`}
                             />
                           </div>
@@ -1566,10 +1567,11 @@ export function AdminPanels() {
             onChange={(e) => setNewGroupDescription(e.target.value)}
           />
           <Input
-            label="Group Meet Link"
-            placeholder="https://meet.google.com/abc-defg-hij"
-            value={newGroupMeetLink}
-            onChange={(e) => setNewGroupMeetLink(e.target.value)}
+            label="Allowed Candidates Count"
+            type="number"
+            placeholder="e.g. 5"
+            value={newGroupMaxCandidates || ''}
+            onChange={(e) => setNewGroupMaxCandidates(parseInt(e.target.value) || 0)}
           />
           <div className="flex space-x-3 pt-2">
             <Button

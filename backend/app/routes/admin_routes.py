@@ -23,6 +23,21 @@ from zoneinfo import ZoneInfo
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+def parse_role_levels(level_str: str) -> list:
+    if not level_str:
+        return ["Level 1"]
+    level_str = level_str.strip()
+    import re
+    m = re.match(r'^L(\d+)$', level_str, re.IGNORECASE)
+    if m:
+        n = int(m.group(1))
+        return [f"Level {i}" for i in range(1, n + 1)]
+    parts = [p.strip() for p in level_str.split(",") if p.strip()]
+    if not parts:
+        return ["Level 1"]
+    return parts
+
+
 class AddPanelRequest(BaseModel):
     full_name: str
     email: str
@@ -260,12 +275,14 @@ def schedule_interview(data: ScheduleInterviewRequest):
         start_time, end_time = slot
 
         # Step 4: Create schedule record
+        next_lvl = candidate.current_level or "Level 1"
         schedule = InterviewSchedule(
             candidate_id=data.candidate_id,
             job_id=job_id,
             date=target_date,
             start_time=start_time,
             end_time=end_time,
+            interview_level=next_lvl,
             interview_status="pending"  # Will be updated by Celery
         )
         db.add(schedule)
@@ -396,10 +413,12 @@ class CandidateAdminDetail(BaseModel):
     venue: Optional[str] = None
     appliedDate: str
     roleId: Optional[int] = None
+    rejectionReason: Optional[str] = None
 
 
 class UpdateCandidateStatusRequest(BaseModel):
     status: str
+    rejection_reason: Optional[str] = None
 
 
 class ReassignCandidatePanelRequest(BaseModel):
@@ -409,7 +428,9 @@ class ReassignCandidatePanelRequest(BaseModel):
 
 class RescheduleInterviewRequest(BaseModel):
     date: str
-    time: str
+    start_time: str
+    end_time: str
+    interview_level: Optional[str] = None
 
 
 @router.get("/candidates", response_model=List[CandidateAdminDetail])
@@ -539,7 +560,8 @@ def get_admin_candidates():
                     meetLink=meet_link,
                     venue=venue,
                     appliedDate=applied_date_str,
-                    roleId=job_id
+                    roleId=job_id,
+                    rejectionReason=c.rejection_reason
                 )
             )
         return result
@@ -686,6 +708,8 @@ def update_candidate_status(candidate_id: int, data: UpdateCandidateStatusReques
         
         # Update candidate status
         candidate.status = data.status
+        if data.status == "Rejected":
+            candidate.rejection_reason = data.rejection_reason
         db.add(candidate)
         
         # Also update latest application status
@@ -1065,6 +1089,8 @@ async def import_selected_candidates(file: UploadFile = File(...)):
                                 interview_status="pending"
                             )
                             db.add(schedule)
+                        candidate.current_level = next_lvl
+                        db.add(candidate)
                     except Exception as parse_err:
                         errors.append({
                             "row": row_idx,
@@ -1103,14 +1129,14 @@ def get_next_level_info(candidate_id: int):
         ).order_by(CandidateApplication.created_at.desc()).first()
         
         if not application or not application.role:
-            return {"next_level": "Level 1", "completed_levels": [], "role_levels": ["Level 1"]}
+            return {
+                "next_level": candidate.current_level or "Level 1",
+                "completed_levels": [],
+                "role_levels": ["Level 1"]
+            }
         
         role = application.role
-        levels_str = role.level or ""
-        if not levels_str:
-            role_levels = ["Level 1"]
-        else:
-            role_levels = [l.strip() for l in levels_str.split(",") if l.strip()]
+        role_levels = parse_role_levels(role.level)
         
         # Get previous completed interview schedules
         completed_schedules = db.query(InterviewSchedule).filter(
@@ -1121,12 +1147,13 @@ def get_next_level_info(candidate_id: int):
         
         completed_levels = [s.interview_level for s in completed_schedules if s.interview_level]
         
-        next_level = None
-        for lvl in role_levels:
-            if lvl not in completed_levels:
-                next_level = lvl
-                break
-        
+        # Suggested next level
+        next_level = candidate.current_level
+        if not next_level or next_level in completed_levels:
+            for lvl in role_levels:
+                if lvl not in completed_levels:
+                    next_level = lvl
+                    break
         if not next_level:
             next_level = f"Level {len(completed_levels) + 1}"
             
@@ -1200,6 +1227,9 @@ def schedule_manual(candidate_id: int, data: ScheduleManualRequest):
                 interview_status="pending"
             )
             db.add(schedule)
+        if data.interview_level:
+            candidate.current_level = data.interview_level
+            db.add(candidate)
 
         # Handle gmeet_link vs venue based on interview mode
         if data.interview_mode.lower() == "offline":
@@ -1266,12 +1296,22 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
             raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
             
         try:
-            target_time = datetime.strptime(data.time.split()[0], "%H:%M").time()
+            target_start_time = datetime.strptime(data.start_time.split()[0], "%H:%M").time()
         except ValueError:
             try:
-                target_time = datetime.strptime(data.time.split()[0], "%H:%M:%S").time()
+                target_start_time = datetime.strptime(data.start_time.split()[0], "%H:%M:%S").time()
             except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid time format. Expected HH:MM")
+                raise HTTPException(status_code=400, detail="Invalid start time format. Expected HH:MM")
+
+        try:
+            target_end_time = datetime.strptime(data.end_time.split()[0], "%H:%M").time()
+        except ValueError:
+            try:
+                target_end_time = datetime.strptime(data.end_time.split()[0], "%H:%M:%S").time()
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end time format. Expected HH:MM")
+
+        time_str = f"{target_start_time.strftime('%I:%M %p')} - {target_end_time.strftime('%I:%M %p')}"
 
         schedule = db.query(InterviewSchedule).filter(
             InterviewSchedule.candidate_id == candidate_id,
@@ -1293,24 +1333,29 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
             venue = application.role.venue
         is_offline = job_type and job_type.lower() == "offline"
 
-        slot_duration = timedelta(hours=1)
-        end_time = (datetime.combine(target_date, target_time) + slot_duration).time()
-
         if schedule:
             schedule.date = target_date
-            schedule.start_time = target_time
-            schedule.end_time = end_time
+            schedule.start_time = target_start_time
+            schedule.end_time = target_end_time
             schedule.interview_status = "pending"
+            if data.interview_level:
+                schedule.interview_level = data.interview_level
+                candidate.current_level = data.interview_level
+                db.add(candidate)
             db.add(schedule)
         else:
             schedule = InterviewSchedule(
                 candidate_id=candidate_id,
                 job_id=job_id,
                 date=target_date,
-                start_time=target_time,
-                end_time=end_time,
+                start_time=target_start_time,
+                end_time=target_end_time,
+                interview_level=data.interview_level,
                 interview_status="pending"
             )
+            if data.interview_level:
+                candidate.current_level = data.interview_level
+                db.add(candidate)
             db.add(schedule)
         
         # Reuse existing gmeet_link if any
@@ -1354,9 +1399,9 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
 
         try:
             if is_offline:
-                notif_message = f"Your interview has been rescheduled for {target_date} at {target_time.strftime('%I:%M %p')} at venue: {venue or 'TBD'}."
+                notif_message = f"Your interview has been rescheduled for {target_date} at {time_str} at venue: {venue or 'TBD'}."
             else:
-                notif_message = f"Your interview has been rescheduled for {target_date} at {target_time.strftime('%I:%M %p')}."
+                notif_message = f"Your interview has been rescheduled for {target_date} at {time_str}."
             NotificationService.create_activity_and_notify(
                 db=db,
                 candidate_id=candidate.id,
@@ -1385,7 +1430,7 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
         if is_offline:
             return {
                 "status": "success",
-                "message": f"Interview rescheduled to {target_date} {target_time} at venue: {venue or 'TBD'}.",
+                "message": f"Interview rescheduled to {target_date} {time_str} at venue: {venue or 'TBD'}.",
                 "schedule_id": schedule.id,
                 "venue": venue,
                 "mode": "offline"
@@ -1393,7 +1438,7 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
 
         return {
             "status": "success",
-            "message": f"Interview rescheduled to {target_date} {target_time}. n8n will generate Google Meet link.",
+            "message": f"Interview rescheduled to {target_date} {time_str}. n8n will generate Google Meet link.",
             "schedule_id": schedule.id
         }
     except HTTPException:
@@ -1813,7 +1858,7 @@ def get_db_panels():
 class PanelGroupCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
-    meet_link: Optional[str] = None
+    max_candidates: Optional[int] = 0
 
 
 class PanelMemberResponse(BaseModel):
@@ -1828,6 +1873,7 @@ class PanelGroupResponse(BaseModel):
     name: str
     description: Optional[str] = None
     meet_link: Optional[str] = None
+    max_candidates: Optional[int] = 0
     members: List[PanelMemberResponse] = []
 
 
@@ -1846,7 +1892,7 @@ def create_panel_group(data: PanelGroupCreateRequest):
         group = PanelGroup(
             name=data.name.strip(),
             description=data.description.strip() if data.description else None,
-            meet_link=data.meet_link.strip() if data.meet_link else None
+            max_candidates=data.max_candidates or 0
         )
         db.add(group)
         db.commit()
@@ -1856,6 +1902,7 @@ def create_panel_group(data: PanelGroupCreateRequest):
             name=group.name,
             description=group.description,
             meet_link=group.meet_link,
+            max_candidates=group.max_candidates,
             members=[]
         )
     except HTTPException:
@@ -1897,6 +1944,7 @@ def list_panel_groups():
                     name=g.name,
                     description=g.description,
                     meet_link=g.meet_link,
+                    max_candidates=g.max_candidates or 0,
                     members=members
                 )
             )

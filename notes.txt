@@ -14,3 +14,25 @@ change it properly.
 refer panel dashboard and also in admin panels page how active slot gmeet link is displayed like that i need in panel candidates page also. check based on current slot and categories and in that categories panel members have assigned candidate but it shows zero to each panel member check that for individual panel member show there assigned candidates as active if they want they can choose all candidates or other panel member candidate prioritize assigned panel member candidate first to display same also happening in admin side panel list tab you are showing candidates/slots only show the count of candidates assigned for each panel member not to that panel group
 
 next get into panel feedback where panel member can write feedback only to candidates they have assigned so our logic has single candidate will be assigned to multiple panel member so let them all can give feedback store that is seprate table and map with candidate at this time final call will be given by admin weather the canidate is hired or rejected complete this flow 
+
+In N8N i want panels to add as atendee so i am going to change 
+from 
+
+{{$json.body.email}}
+
+to
+
+={{
+[
+  $json.body.email,
+  ...($json.body.panel_emails || [])
+]
+}}
+
+so in payload create panels list after "email": candidate.email,
+
+"panel_emails": [
+  "panel1@company.com",
+  "panel2@company.com",
+  "panel3@company.com"
+]

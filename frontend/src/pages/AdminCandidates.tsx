@@ -66,7 +66,8 @@ export function AdminCandidates() {
 
   // Modal form states
   const [newDate, setNewDate] = useState('');
-  const [newTime, setNewTime] = useState('');
+  const [newStartTime, setNewStartTime] = useState('');
+  const [newEndTime, setNewEndTime] = useState('');
   const [selectedPanelGroupId, setSelectedPanelGroupId] = useState('');
   const [selectedPanelIds, setSelectedPanelIds] = useState<string[]>([]);
 
@@ -79,7 +80,13 @@ export function AdminCandidates() {
   const [schedMode, setSchedMode] = useState('Online');
   const [schedVenue, setSchedVenue] = useState('');
   const [schedLevel, setSchedLevel] = useState('Level 1');
+  const [schedLevels, setSchedLevels] = useState<string[]>(['Level 1']);
+  const [rescheduleLevel, setRescheduleLevel] = useState('Level 1');
+  const [rescheduleLevels, setRescheduleLevels] = useState<string[]>([]);
   const [completedLevels, setCompletedLevels] = useState<string[]>([]);
+  const [rejectionModalOpen, setRejectionModalOpen] = useState(false);
+  const [rejectionReasonText, setRejectionReasonText] = useState('');
+  const [candidateToRejectId, setCandidateToRejectId] = useState<string | null>(null);
   const [busyPanelIds, setBusyPanelIds] = useState<string[]>([]);
   const [dbPanels, setDbPanels] = useState<any[]>([]);
   const [dbPanelGroups, setDbPanelGroups] = useState<any[]>([]);
@@ -156,8 +163,30 @@ export function AdminCandidates() {
     setOpenMenu(null);
     if (action === 'reschedule') {
       setNewDate(candidate.interviewDate ? candidate.interviewDate.split('T')[0] : '');
-      setNewTime(candidate.interviewTime ? convertTo24Hour(candidate.interviewTime.split(' - ')[0]) : '');
-      setRescheduleOpen(true);
+      let startTime = '';
+      let endTime = '';
+      if (candidate.interviewTime) {
+        const parts = candidate.interviewTime.split(' - ');
+        if (parts[0]) startTime = convertTo24Hour(parts[0]);
+        if (parts[1]) endTime = convertTo24Hour(parts[1]);
+      }
+      setNewStartTime(startTime);
+      setNewEndTime(endTime);
+      fetch(`${API_BASE_URL}/admin/candidates/${candidate.id}/next-level-info`)
+        .then((res) => {
+          if (res.ok) return res.json();
+          throw new Error();
+        })
+        .then((data) => {
+          setRescheduleLevel(candidate.current_level || data.next_level || 'Level 1');
+          setRescheduleLevels(data.role_levels || ['Level 1']);
+          setRescheduleOpen(true);
+        })
+        .catch(() => {
+          setRescheduleLevel(candidate.current_level || 'Level 1');
+          setRescheduleLevels(['Level 1']);
+          setRescheduleOpen(true);
+        });
     }
     if (action === 'reassign') {
       const initialGroupId = candidate.panelGroupId || String(dbPanelGroups[0]?.id || '');
@@ -227,11 +256,13 @@ export function AdminCandidates() {
         })
         .then((data) => {
           setSchedLevel(data.next_level || 'Level 1');
+          setSchedLevels(data.role_levels || ['Level 1']);
           setCompletedLevels(data.completed_levels || []);
           setScheduleManualOpen(true);
         })
         .catch(() => {
           setSchedLevel('Level 1');
+          setSchedLevels(['Level 1']);
           setCompletedLevels([]);
           setScheduleManualOpen(true);
         });
@@ -240,8 +271,8 @@ export function AdminCandidates() {
 
   const handleConfirmReschedule = async () => {
     if (!selectedCandidate) return;
-    if (!newDate || !newTime) {
-      toast.error('Please select both date and time');
+    if (!newDate || !newStartTime || !newEndTime) {
+      toast.error('Please select date, start time, and end time');
       return;
     }
     try {
@@ -250,7 +281,12 @@ export function AdminCandidates() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ date: newDate, time: newTime }),
+        body: JSON.stringify({
+          date: newDate,
+          start_time: newStartTime,
+          end_time: newEndTime,
+          interview_level: rescheduleLevel
+        }),
       });
       if (!res.ok) {
         const errData = await res.json();
@@ -363,14 +399,17 @@ export function AdminCandidates() {
 
 
 
-  const handleApproveReject = async (status: 'Selected' | 'Rejected', candidateId: string) => {
+  const handleApproveReject = async (status: 'Selected' | 'Rejected', candidateId: string, rejectionReason?: string) => {
     try {
       const res = await fetch(`${API_BASE_URL}/admin/candidates/${candidateId}/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          status,
+          rejection_reason: rejectionReason
+        }),
       });
       if (!res.ok) {
         const errData = await res.json();
@@ -380,6 +419,15 @@ export function AdminCandidates() {
       fetchCandidates();
     } catch (err: any) {
       toast.error(err.message || `Error updating status to ${status}`);
+    }
+  };
+
+  const handleConfirmRejection = () => {
+    if (candidateToRejectId) {
+      handleApproveReject('Rejected', candidateToRejectId, rejectionReasonText);
+      setRejectionModalOpen(false);
+      setCandidateToRejectId(null);
+      setRejectionReasonText('');
     }
   };
 
@@ -435,6 +483,7 @@ export function AdminCandidates() {
 
   const statuses = [
     'all',
+    'New',
     'Applied',
     'Selected',
     'Scheduled',
@@ -816,6 +865,44 @@ export function AdminCandidates() {
         </GlassCard>
       </motion.div>
 
+      {/* Rejection Modal */}
+      <Modal
+        isOpen={rejectionModalOpen}
+        onClose={() => setRejectionModalOpen(false)}
+        title="Reject Candidate"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
+              Reason for Rejection
+            </label>
+            <textarea
+              rows={4}
+              value={rejectionReasonText}
+              onChange={(e) => setRejectionReasonText(e.target.value)}
+              placeholder="Please provide the reason why this candidate is being rejected..."
+              className="w-full px-4 py-3 bg-black/70 backdrop-blur-xl border border-white/60 rounded-2xl text-sm text-secondary placeholder:text-neutral/50 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none font-medium"
+            />
+          </div>
+          <div className="flex space-x-3">
+            <Button
+              className="flex-grow bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleConfirmRejection}
+            >
+              Confirm Reject
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-grow"
+              onClick={() => setRejectionModalOpen(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Reschedule modal */}
       <Modal
         isOpen={rescheduleOpen}
@@ -830,12 +917,38 @@ export function AdminCandidates() {
             value={newDate}
             onChange={(e) => setNewDate(e.target.value)}
           />
-          <Input
-            type="time"
-            label="New Time"
-            value={newTime}
-            onChange={(e) => setNewTime(e.target.value)}
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              type="time"
+              label="Start Time"
+              value={newStartTime}
+              onChange={(e) => setNewStartTime(e.target.value)}
+            />
+            <Input
+              type="time"
+              label="End Time"
+              value={newEndTime}
+              onChange={(e) => setNewEndTime(e.target.value)}
+            />
+          </div>
+          {rescheduleLevels.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
+                Select Interview Level
+              </label>
+              <select
+                value={rescheduleLevel}
+                onChange={(e) => setRescheduleLevel(e.target.value)}
+                className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                {rescheduleLevels.map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    {lvl}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex space-x-3">
             <Button
               className="flex-grow"
@@ -969,6 +1082,25 @@ export function AdminCandidates() {
             )}
           </div>
 
+          {schedLevels.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
+                Select Interview Level
+              </label>
+              <select
+                value={schedLevel}
+                onChange={(e) => setSchedLevel(e.target.value)}
+                className="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                {schedLevels.map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    {lvl}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <Input
             type="date"
             label="Date"
@@ -1054,6 +1186,28 @@ export function AdminCandidates() {
           }}
           className="candidate-menu-container w-44 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
         >
+          {selectedCandidate.status !== 'Selected' && selectedCandidate.status !== 'Rejected' && !selectedCandidate.panelId && (
+            <>
+              <button
+                onClick={() => {
+                  setOpenMenu(null);
+                  handleApproveReject('Selected', selectedCandidate.id);
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-green-600 hover:bg-green-50/50 transition-colors font-medium border-b border-slate-100">
+                Approve
+              </button>
+              <button
+                onClick={() => {
+                  setOpenMenu(null);
+                  setCandidateToRejectId(selectedCandidate.id);
+                  setRejectionReasonText('');
+                  setRejectionModalOpen(true);
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50/50 transition-colors font-medium border-b border-slate-100">
+                Reject
+              </button>
+            </>
+          )}
           {selectedCandidate.status === 'Selected' && (
             <button
               onClick={() => handleAction('schedule', selectedCandidate)}
@@ -1087,26 +1241,6 @@ export function AdminCandidates() {
             className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium">
             View Feedback
           </button>
-          {selectedCandidate.status !== 'Selected' && selectedCandidate.status !== 'Rejected' && (
-            <>
-              <button
-                onClick={() => {
-                  setOpenMenu(null);
-                  handleApproveReject('Selected', selectedCandidate.id);
-                }}
-                className="w-full text-left px-3 py-2 text-xs text-green-600 hover:bg-green-50/50 transition-colors font-medium border-t border-slate-100">
-                Approve
-              </button>
-              <button
-                onClick={() => {
-                  setOpenMenu(null);
-                  handleApproveReject('Rejected', selectedCandidate.id);
-                }}
-                className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50/50 transition-colors font-medium">
-                Reject
-              </button>
-            </>
-          )}
         </div>,
         document.body
       )}

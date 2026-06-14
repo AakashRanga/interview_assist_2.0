@@ -13,7 +13,7 @@ class Candidate(Base):
     email = Column(String(255), nullable=False)
     phone = Column(String(50), nullable=True)
     location = Column(String(255), nullable=True)
-    status = Column(String(100), nullable=False, default="Applied")
+    status = Column(String(100), nullable=False, default="New")
     resume_path = Column(String(500), nullable=True)
     skills = Column(String(1000), nullable=True)
     certificates = Column(String(1000), nullable=True)
@@ -23,6 +23,8 @@ class Candidate(Base):
     preferred_location = Column(String(255), nullable=True)
     panel_id = Column(String(100), nullable=True)
     panel_group_id = Column(String(100), nullable=True)
+    current_level = Column(String(100), nullable=True, default="Level 1")
+    rejection_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

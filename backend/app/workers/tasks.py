@@ -1,10 +1,15 @@
+
 import requests
+import json
 from celery_worker import celery
 from app.database import SessionLocal
 from app.models.candidate import Candidate
 from app.models.candidate_application import CandidateApplication
 from app.models.job_role import JobRole
 from app.models.interview_schedule import InterviewSchedule
+from app.models.panel import Panel
+from app.models.user import User
+from app.models.panel_group import PanelGroup
 from datetime import datetime, date, time, timedelta
 from celery.exceptions import Retry
 from zoneinfo import ZoneInfo
@@ -124,10 +129,62 @@ def schedule_interview_task(self, schedule_id, candidate_id):
         # PREPARE PAYLOAD FOR N8N
         # ============================================
 
+        # Resolve panel records from schedule, candidate, or candidate's panel group
+        panel_records = []
         
+        # 1. Try schedule.panel_id
+        if schedule.panel_id:
+            try:
+                parsed = json.loads(schedule.panel_id)
+                if isinstance(parsed, list):
+                    panel_records = db.query(Panel).filter(Panel.id.in_([int(x) for x in parsed])).all()
+                else:
+                    panel_records = db.query(Panel).filter(Panel.id == int(parsed)).all()
+            except Exception:
+                try:
+                    panel_records = db.query(Panel).filter(Panel.id == int(schedule.panel_id)).all()
+                except Exception:
+                    pass
+
+        # 2. Try candidate.panel_id if schedule has no panels
+        if not panel_records and candidate.panel_id:
+            try:
+                parsed = json.loads(candidate.panel_id)
+                if isinstance(parsed, list):
+                    panel_records = db.query(Panel).filter(Panel.id.in_([int(x) for x in parsed])).all()
+                else:
+                    panel_records = db.query(Panel).filter(Panel.id == int(parsed)).all()
+            except Exception:
+                try:
+                    panel_records = db.query(Panel).filter(Panel.id == int(candidate.panel_id)).all()
+                except Exception:
+                    p_by_name = db.query(Panel).filter(Panel.hr_panelists_name == candidate.panel_id).first()
+                    if p_by_name:
+                        panel_records = [p_by_name]
+
+        # 3. Try candidate.panel_group_id if still no panels
+        if not panel_records and candidate.panel_group_id:
+            group = None
+            try:
+                group_id = int(candidate.panel_group_id)
+                group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
+            except Exception:
+                group = db.query(PanelGroup).filter(PanelGroup.name == candidate.panel_group_id).first()
+            if group:
+                panel_records = group.panels
+
+        # 4. Extract emails
+        panel_emails = []
+        for p in panel_records:
+            if p.user_id:
+                u_rec = db.query(User).filter(User.id == p.user_id, User.role == 'panel').first()
+                if u_rec and u_rec.email:
+                    panel_emails.append(u_rec.email)
+
         payload = {
             "candidate_name": candidate.full_name,
             "email": candidate.email,
+            "panel_emails": panel_emails,
             "job_role": job_role_title,
             "date": schedule.date.isoformat()
             if schedule.date else None,
@@ -172,7 +229,7 @@ def schedule_interview_task(self, schedule_id, candidate_id):
                 response = requests.post(
                     N8N_WEBHOOK_URL,
                     json=payload,
-                    timeout=15
+                    timeout=60
                 )
                 print(f"n8n response status: {response.status_code}")
                 if response.status_code == 200:
@@ -183,7 +240,17 @@ def schedule_interview_task(self, schedule_id, candidate_id):
                         event_data = result[0] if result else {}
                     else:
                         event_data = result
-                    meet_link = event_data.get("hangoutLink")
+                    meet_link = (
+                        event_data.get("hangoutLink")
+                        or event_data.get("meetLink")
+                    )
+
+                    if not meet_link:
+                        conference = event_data.get("conferenceData", {})
+                        entry_points = conference.get("entryPoints", [])
+
+                        if entry_points:
+                            meet_link = entry_points[0].get("uri")
                 
                 if not meet_link:
                     raise ValueError(f"No hangoutLink generated. Response Code: {response.status_code}")
@@ -197,7 +264,6 @@ def schedule_interview_task(self, schedule_id, candidate_id):
 
         # Update PanelGroup's meet_link dynamically based on candidate's interview slot
         if candidate.panel_group_id:
-            from app.models.panel_group import PanelGroup
             try:
                 group_id = int(candidate.panel_group_id)
                 group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
@@ -225,7 +291,6 @@ def schedule_interview_task(self, schedule_id, candidate_id):
         # RETRIEVE PANEL AND SEND EMAIL NOTIFICATIONS
         # ============================================
         try:
-            from app.models.panel import Panel
             from app.services.email_service import send_email
             
             cand_panels = []
@@ -379,9 +444,6 @@ def send_interview_reminder_task(schedule_id):
         if not candidate:
             return False
             
-        from app.models.panel import Panel
-        from app.models.panel_group import PanelGroup
-        
         cand_panels = []
         if candidate.panel_id:
             import json

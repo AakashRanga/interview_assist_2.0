@@ -20,6 +20,7 @@ export interface Candidate {
   meetLink?: string;
   venue?: string;
   appliedDate: string;
+  rejectionReason?: string;
 }
 
 export interface PanelMember {

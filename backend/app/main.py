@@ -89,6 +89,34 @@ with engine.begin() as connection:
                     "ALTER TABLE candidates ADD COLUMN panel_group_id VARCHAR(100) NULL"
                 )
             )
+        if "current_level" not in existing_cand_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE candidates ADD COLUMN current_level VARCHAR(100) NULL DEFAULT 'Level 1'"
+                )
+            )
+        if "rejection_reason" not in existing_cand_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE candidates ADD COLUMN rejection_reason TEXT NULL"
+                )
+            )
+
+        # panel_groups table columns check
+        result_pg = connection.execute(
+            text(
+                "SELECT COLUMN_NAME FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = 'panel_groups'"
+            ),
+            {"schema": db_name}
+        )
+        existing_pg_columns = {row[0] for row in result_pg}
+        if "max_candidates" not in existing_pg_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE panel_groups ADD COLUMN max_candidates INT NULL DEFAULT 0"
+                )
+            )
 
         # panels table columns check
         result_panels = connection.execute(

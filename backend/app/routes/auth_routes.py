@@ -59,7 +59,8 @@ def signup(data: UserSignUpRequest):
         candidate = Candidate(
             user_id=user.id,
             full_name=data.full_name,
-            email=data.email
+            email=data.email,
+            status="New"
         )
         db.add(candidate)
         db.commit()

@@ -180,7 +180,7 @@ async def upload_candidate_document(
                 user_id=user.id,
                 full_name=user.full_name,
                 email=user.email,
-                status="Applied"
+                status="New"
             )
             db.add(candidate)
             db.commit()
@@ -260,7 +260,7 @@ async def add_user(data: CandidateRequest):
             full_name=data.name,
             email=data.email,
             phone=data.phone,
-            status="Applied"
+            status="New"
         )
 
         db.add(candidate)
@@ -386,7 +386,7 @@ def get_candidate_profile_by_user(user_id: int):
                 user_id=user.id,
                 full_name=user.full_name,
                 email=user.email,
-                status="Applied"
+                status="New"
             )
             db.add(candidate)
             db.commit()
@@ -480,7 +480,7 @@ def update_candidate_profile(user_id: int, data: CandidateProfileUpdateRequest):
                 user_id=user.id,
                 full_name=user.full_name,
                 email=user.email,
-                status="Applied"
+                status="New"
             )
             db.add(candidate)
             db.commit()
@@ -771,6 +771,7 @@ def apply_role(candidate_id: int, data: ApplyRoleRequest):
         )
         db.add(application)
         candidate.status = "Applied"
+        candidate.current_level = "Level 1"
         db.add(candidate)
         db.commit()
         db.refresh(application)
@@ -844,6 +845,7 @@ def apply_role_by_user(user_id: int, data: ApplyRoleRequest):
         )
         db.add(application)
         candidate.status = "Applied"
+        candidate.current_level = "Level 1"
         db.add(candidate)
         db.commit()
         db.refresh(application)
