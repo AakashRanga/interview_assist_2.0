@@ -1,81 +1,86 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  base: '/interview_assist/',
-  server: {
-    port: 8189,
-    host: '0.0.0.0',
-    proxy: {
-      '/admin': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        bypass: (req) => {
-          if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-            return '/interview_assist/index.html';
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const backendUrl = env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+  return {
+    plugins: [react()],
+    base: '/interview_assist/',
+    server: {
+      port: 8189,
+      host: '0.0.0.0',
+      proxy: {
+        '/admin': {
+          target: backendUrl,
+          changeOrigin: true,
+          bypass: (req) => {
+            if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
+              return '/interview_assist/index.html';
+            }
           }
-        }
-      },
-      '/auth': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        bypass: (req) => {
-          if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-            return '/interview_assist/index.html';
+        },
+        '/auth': {
+          target: backendUrl,
+          changeOrigin: true,
+          bypass: (req) => {
+            if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
+              return '/interview_assist/index.html';
+            }
           }
-        }
-      },
-      '/resume': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        bypass: (req) => {
-          if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-            return '/interview_assist/index.html';
+        },
+        '/resume': {
+          target: backendUrl,
+          changeOrigin: true,
+          bypass: (req) => {
+            if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
+              return '/interview_assist/index.html';
+            }
           }
-        }
-      },
-      '/candidate': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        bypass: (req) => {
-          if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-            return '/interview_assist/index.html';
+        },
+        '/candidate': {
+          target: backendUrl,
+          changeOrigin: true,
+          bypass: (req) => {
+            if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
+              return '/interview_assist/index.html';
+            }
           }
-        }
-      },
-      '/notification': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        bypass: (req) => {
-          if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-            return '/interview_assist/index.html';
+        },
+        '/notification': {
+          target: backendUrl,
+          changeOrigin: true,
+          bypass: (req) => {
+            if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
+              return '/interview_assist/index.html';
+            }
           }
-        }
-      },
-      '/feedback': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        bypass: (req) => {
-          if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-            return '/interview_assist/index.html';
+        },
+        '/feedback': {
+          target: backendUrl,
+          changeOrigin: true,
+          bypass: (req) => {
+            if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
+              return '/interview_assist/index.html';
+            }
           }
-        }
-      },
-      '/user': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        bypass: (req) => {
-          if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-            return '/interview_assist/index.html';
+        },
+        '/user': {
+          target: backendUrl,
+          changeOrigin: true,
+          bypass: (req) => {
+            if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
+              return '/interview_assist/index.html';
+            }
           }
-        }
-      },
-      '/uploads': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
+        },
+        '/uploads': {
+          target: backendUrl,
+          changeOrigin: true,
+        },
       },
     },
-  },
+  };
 })

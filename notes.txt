@@ -36,3 +36,5 @@ so in payload create panels list after "email": candidate.email,
   "panel2@company.com",
   "panel3@company.com"
 ]
+
+next the path is http://localhost:8189/interview_assist/ what if i dont want /interview_assist/ only my domain name followed by what ever page i am redirecting that page endpoint alone to do this what need to be changed do not change just say me what to do

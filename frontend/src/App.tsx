@@ -32,7 +32,7 @@ export function App() {
       >
         <Toaster position="top-right" />
         <Routes>
-          <Route path="/" element={<Landing />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
 

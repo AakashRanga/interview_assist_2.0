@@ -241,9 +241,9 @@ export function AdminPanels() {
       // 4. Status filter (busy vs free)
       if (statusFilter !== 'all') {
         const assigned = getPanelistCandidates(p.id, p.panel_group_id);
-        const hasInterviews = assigned.length > 0;
-        if (statusFilter === 'busy' && !hasInterviews) return false;
-        if (statusFilter === 'free' && hasInterviews) return false;
+        const hasActiveInterviews = assigned.some(c => !c.status || !['Completed', 'Rejected', 'Hired'].includes(c.status));
+        if (statusFilter === 'busy' && !hasActiveInterviews) return false;
+        if (statusFilter === 'free' && hasActiveInterviews) return false;
       }
 
       return true;
@@ -1292,7 +1292,7 @@ export function AdminPanels() {
                           const assignedGroup = panelGroups.find((g) => g.id === p.panel_group_id);
                           const assignedCandidates = getPanelistCandidates(p.id, p.panel_group_id);
                           const isExpanded = expandedPanelId === p.id;
-                          const hasInterviews = assignedCandidates.length > 0;
+                          const hasActiveInterviews = assignedCandidates.some(c => !c.status || !['Completed', 'Rejected', 'Hired'].includes(c.status));
 
                           return (
                             <React.Fragment key={p.id}>
@@ -1352,8 +1352,8 @@ export function AdminPanels() {
 
                                 {/* Status */}
                                 <td className="px-4 py-3">
-                                  <Badge variant={hasInterviews ? 'warning' : 'success'} size="sm">
-                                    {hasInterviews ? 'Busy' : 'Free'}
+                                  <Badge variant={hasActiveInterviews ? 'warning' : 'success'} size="sm">
+                                    {hasActiveInterviews ? 'Busy' : 'Free'}
                                   </Badge>
                                 </td>
 

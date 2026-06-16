@@ -189,14 +189,20 @@ with engine.begin() as connection:
 
 app = FastAPI(title="AI Recruitment System")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+frontend_urls_env = os.getenv("FRONTEND_URLS")
+if frontend_urls_env:
+    origins = [url.strip() for url in frontend_urls_env.split(",") if url.strip()]
+else:
+    origins = [
         "http://localhost:8189",
         "http://127.0.0.1:8189",
         "https://aakashranga.github.io/interview_assist",
         "https://aakashranga.github.io"
-    ],
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
