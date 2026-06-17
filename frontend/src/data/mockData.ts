@@ -4,7 +4,7 @@ export interface Candidate {
   email: string;
   phone: string;
   role: string;
-  status: 'Applied' | 'Selected' | 'Scheduled' | 'Completed' | 'Rejected';
+  status: 'Applied' | 'Selected' | 'Scheduled' | 'Completed' | 'Rejected' | 'Hired';
   interviewDate?: string;
   interviewTime?: string;
   mode: 'Online' | 'Offline';

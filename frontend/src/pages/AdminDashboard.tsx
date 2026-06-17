@@ -82,10 +82,10 @@ export function AdminDashboard() {
     const selected = candidates.filter(c => c.status === 'Selected').length;
     const completed = candidates.filter(c => c.status === 'Completed').length;
     const rejected = candidates.filter(c => c.status === 'Rejected').length;
-    const successRate = total > 0 
-      ? Math.round(((selected + completed) / (selected + completed + rejected || 1)) * 100) 
+    const hired = candidates.filter(c => c.status === 'Hired').length;
+    const successRate = (hired + rejected) > 0 
+      ? Math.round((hired / (hired + rejected)) * 100) 
       : 0;
-    const hired = selected + completed;
     
     return { total, scheduled, successRate, hired };
   }, [candidates]);
@@ -93,10 +93,11 @@ export function AdminDashboard() {
   const pipelineData = useMemo(() => {
     return [
       { stage: 'Applied', count: candidates.filter(c => c.status === 'Applied').length },
+      { stage: 'Selected', count: candidates.filter(c => c.status === 'Selected').length },
       { stage: 'Scheduled', count: candidates.filter(c => c.status === 'Scheduled').length },
       { stage: 'Completed', count: candidates.filter(c => c.status === 'Completed').length },
-      { stage: 'Selected', count: candidates.filter(c => c.status === 'Selected').length },
-      { stage: 'Rejected', count: candidates.filter(c => c.status === 'Rejected').length }
+      { stage: 'Rejected', count: candidates.filter(c => c.status === 'Rejected').length },
+      { stage: 'Hired', count: candidates.filter(c => c.status === 'Hired').length }
     ];
   }, [candidates]);
 
@@ -123,9 +124,10 @@ export function AdminDashboard() {
     return [
       { name: 'Scheduled', value: candidates.filter(c => c.status === 'Scheduled').length, color: '#7C3AED' },
       { name: 'Completed', value: candidates.filter(c => c.status === 'Completed').length, color: '#06B6D4' },
-      { name: 'Selected', value: candidates.filter(c => c.status === 'Selected').length, color: '#10B981' },
+      { name: 'Selected', value: candidates.filter(c => c.status === 'Selected').length, color: '#3B82F6' },
       { name: 'Applied', value: candidates.filter(c => c.status === 'Applied').length, color: '#F59E0B' },
-      { name: 'Rejected', value: candidates.filter(c => c.status === 'Rejected').length, color: '#EF4444' }
+      { name: 'Rejected', value: candidates.filter(c => c.status === 'Rejected').length, color: '#EF4444' },
+      { name: 'Hired', value: candidates.filter(c => c.status === 'Hired').length, color: '#10B981' }
     ];
   }, [candidates]);
 
@@ -206,6 +208,16 @@ export function AdminDashboard() {
           message: `Feedback submitted & interview completed for ${c.name}`,
           timestamp: c.interviewDate || c.appliedDate,
           user: 'System'
+        });
+      }
+
+      if (c.status === 'Hired') {
+        list.push({
+          id: `act-hired-${c.id}`,
+          type: 'candidate_hired',
+          message: `Candidate ${c.name} has been Hired!`,
+          timestamp: c.interviewDate || c.appliedDate,
+          user: 'Admin'
         });
       }
     });
@@ -468,7 +480,7 @@ export function AdminDashboard() {
                           </div>
                           <Badge
                           variant={
-                          candidate.status === 'Selected' ?
+                          candidate.status === 'Selected' || candidate.status === 'Hired' ?
                           'success' :
                           candidate.status === 'Rejected' ?
                           'danger' :
@@ -681,13 +693,13 @@ export function AdminDashboard() {
                 {recentActivities.map((activity) =>
                 <div key={activity.id} className="flex items-start gap-2.5">
                     <div
-                    className={`w-7 h-7 rounded-lg border flex items-center justify-center flex-shrink-0 ${activity.type === 'interview_scheduled' ? 'bg-primary/10 border-primary/20' : activity.type === 'feedback_submitted' ? 'bg-cyan/10 border-cyan/20' : activity.type === 'candidate_applied' ? 'bg-green-500/10 border-green-500/20' : 'bg-yellow-500/10 border-yellow-500/20'}`}>
+                    className={`w-7 h-7 rounded-lg border flex items-center justify-center flex-shrink-0 ${activity.type === 'interview_scheduled' ? 'bg-primary/10 border-primary/20' : activity.type === 'feedback_submitted' ? 'bg-cyan/10 border-cyan/20' : activity.type === 'candidate_applied' || activity.type === 'candidate_hired' ? 'bg-green-500/10 border-green-500/20' : 'bg-yellow-500/10 border-yellow-500/20'}`}>
                     
                       {activity.type === 'interview_scheduled' ?
                     <CalendarIcon className="w-3 h-3 text-primary" /> :
                     activity.type === 'feedback_submitted' ?
                     <CheckCircleIcon className="w-3 h-3 text-cyan" /> :
-                    activity.type === 'candidate_applied' ?
+                    activity.type === 'candidate_applied' || activity.type === 'candidate_hired' ?
                     <UserCheckIcon className="w-3 h-3 text-green-600" /> :
 
                     <ClockIcon className="w-3 h-3 text-yellow-600" />
@@ -886,7 +898,7 @@ export function AdminDashboard() {
                     </div>
                     <Badge
                   variant={
-                  c.status === 'Selected' ?
+                  c.status === 'Selected' || c.status === 'Hired' ?
                   'success' :
                   c.status === 'Rejected' ?
                   'danger' :

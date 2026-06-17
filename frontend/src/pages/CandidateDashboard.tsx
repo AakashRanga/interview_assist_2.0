@@ -58,7 +58,6 @@ export function CandidateDashboard() {
       Array.isArray(candidate.education) &&
       candidate.education.some(
         (edu: any) =>
-          String(edu.degree || '').trim() ||
           String(edu.university || '').trim() ||
           String(edu.graduation_year || '').trim() ||
           String(edu.gpa || '').trim()

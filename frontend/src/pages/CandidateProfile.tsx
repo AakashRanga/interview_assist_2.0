@@ -484,20 +484,19 @@ export function CandidateProfile() {
     value && value.trim().length > 0 ? 1 : 0;
 
   const calculateCompletion = () => {
-    const personalComplete =
-      countFilled(personalInfo.fullName) &&
-      countFilled(personalInfo.email) &&
-      countFilled(personalInfo.phone) &&
+    const personalCount =
+      countFilled(personalInfo.fullName) +
+      countFilled(personalInfo.email) +
+      countFilled(personalInfo.phone) +
       countFilled(personalInfo.location);
 
     const hasEducation = educationList.some(
-      (edu, idx) =>
+      (edu) =>
         countFilled(edu.university) ||
         countFilled(edu.graduationYear) ||
-        countFilled(edu.gpa) ||
-        (idx === 2 && countFilled(edu.degree)) ||
-        (idx === 3 && countFilled(edu.degree))
+        countFilled(edu.gpa)
     );
+
     const hasExperience = experienceList.some(
       (exp) =>
         countFilled(exp.currentRole) ||
@@ -505,26 +504,28 @@ export function CandidateProfile() {
         countFilled(exp.years) ||
         countFilled(exp.summary)
     );
-    const hasSkills = skills.length > 0;
-    const hasDocuments = resume?.path || resume?.file || certificates.length > 0;
-    const hasLinks =
-      countFilled(links.portfolio) ||
-      countFilled(links.linkedin) ||
+
+    const hasSkills = skills.length > 0 ? 1 : 0;
+
+    const linksCount =
+      countFilled(links.portfolio) +
+      countFilled(links.linkedin) +
       countFilled(links.github);
 
-    const sections = [
-      personalComplete ? 1 : 0,
-      hasEducation ? 1 : 0,
-      hasExperience ? 1 : 0,
-      hasSkills ? 1 : 0,
-      hasDocuments ? 1 : 0,
-      hasLinks ? 1 : 0
-    ];
+    const resumeCount = (resume?.path || resume?.file) ? 1 : 0;
+    const certificateCount = certificates.length > 0 ? 1 : 0;
 
-    const totalSections = sections.length;
-    const filledSections = sections.reduce((sum, value) => sum + value, 0);
+    const totalPoints = 11;
+    const filledPoints =
+      personalCount +
+      (hasEducation ? 1 : 0) +
+      (hasExperience ? 1 : 0) +
+      hasSkills +
+      resumeCount +
+      certificateCount +
+      linksCount;
 
-    return Math.min(100, Math.round((filledSections / totalSections) * 100));
+    return Math.min(100, Math.round((filledPoints / totalPoints) * 100));
   };
 
   const profileCompletion = useMemo(
