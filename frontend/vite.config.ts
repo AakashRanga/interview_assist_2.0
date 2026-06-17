@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
-    base: '/interview_assist/',
+    base: '/',
     server: {
       port: 8189,
       host: '0.0.0.0',
@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           bypass: (req) => {
             if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-              return '/interview_assist/index.html';
+              return '/index.html';
             }
           }
         },
@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           bypass: (req) => {
             if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-              return '/interview_assist/index.html';
+              return '/index.html';
             }
           }
         },
@@ -36,7 +36,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           bypass: (req) => {
             if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-              return '/interview_assist/index.html';
+              return '/index.html';
             }
           }
         },
@@ -45,7 +45,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           bypass: (req) => {
             if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-              return '/interview_assist/index.html';
+              return '/index.html';
             }
           }
         },
@@ -54,7 +54,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           bypass: (req) => {
             if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-              return '/interview_assist/index.html';
+              return '/index.html';
             }
           }
         },
@@ -63,7 +63,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           bypass: (req) => {
             if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-              return '/interview_assist/index.html';
+              return '/index.html';
             }
           }
         },
@@ -72,7 +72,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           bypass: (req) => {
             if (req.headers.accept && req.headers.accept.indexOf('html') !== -1) {
-              return '/interview_assist/index.html';
+              return '/index.html';
             }
           }
         },
