@@ -20,11 +20,12 @@ import { AdminAnalytics } from './pages/AdminAnalytics';
 import { AdminSettings } from './pages/AdminSettings';
 import { PanelSettings } from './pages/PanelSettings';
 import { Landing } from './pages/Landing';
+import { ProtectedRoute, PublicRoute } from './components/ProtectedRoute';
+
 export function App() {
   return (
     <ThemeProvider>
       <BrowserRouter
-        basename="/interview_assist"
         future={{
           v7_startTransition: true,
           v7_relativeSplatPath: true,
@@ -33,36 +34,142 @@ export function App() {
         <Toaster position="top-right" />
         <Routes>
           <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
+          <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+          <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
 
-          <Route path="/candidate/dashboard" element={<CandidateDashboard />} />
+          {/* Candidate Routes */}
+          <Route
+            path="/candidate/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['candidate']}>
+                <CandidateDashboard />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/candidate" element={<Navigate to="/candidate/dashboard" replace />} />
-          <Route path="/candidate/profile" element={<CandidateProfile />} />
+          <Route
+            path="/candidate/profile"
+            element={
+              <ProtectedRoute allowedRoles={['candidate']}>
+                <CandidateProfile />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/candidate/notifications"
-            element={<CandidateNotifications />} />
-          
+            element={
+              <ProtectedRoute allowedRoles={['candidate']}>
+                <CandidateNotifications />
+              </ProtectedRoute>
+            }
+          />
 
-          <Route path="/panel/dashboard" element={<PanelDashboard />} />
+
+          {/* Panel Routes */}
+          <Route
+            path="/panel/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['panel']}>
+                <PanelDashboard />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/panel" element={<Navigate to="/panel/dashboard" replace />} />
-          <Route path="/panel/candidates" element={<PanelCandidates />} />
-          <Route path="/panel/schedule" element={<PanelSchedule />} />
-          <Route path="/panel/notifications" element={<PanelNotifications />} />
-          <Route path="/panel/settings" element={<PanelSettings />} />
+          <Route
+            path="/panel/candidates"
+            element={
+              <ProtectedRoute allowedRoles={['panel']}>
+                <PanelCandidates />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/panel/schedule"
+            element={
+              <ProtectedRoute allowedRoles={['panel']}>
+                <PanelSchedule />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/panel/notifications"
+            element={
+              <ProtectedRoute allowedRoles={['panel']}>
+                <PanelNotifications />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/panel/settings"
+            element={
+              <ProtectedRoute allowedRoles={['panel']}>
+                <PanelSettings />
+              </ProtectedRoute>
+            }
+          />
 
-          <Route path="/admin/dashboard" element={<AdminDashboard />} />
+          {/* Admin Routes */}
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
-          <Route path="/admin/candidates" element={<AdminCandidates />} />
-          <Route path="/admin/panels" element={<AdminPanels />} />
-          <Route path="/admin/roles" element={<AdminRoles />} />
-          <Route path="/admin/schedule" element={<AdminSchedule />} />
-          <Route path="/admin/analytics" element={<AdminAnalytics />} />
-          <Route path="/admin/settings" element={<AdminSettings />} />
+          <Route
+            path="/admin/candidates"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminCandidates />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/panels"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminPanels />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/roles"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminRoles />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/schedule"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminSchedule />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/analytics"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminAnalytics />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/settings"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminSettings />
+              </ProtectedRoute>
+            }
+          />
 
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
-    </ThemeProvider>);
-
+    </ThemeProvider>
+  );
 }
