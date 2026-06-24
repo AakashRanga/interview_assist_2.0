@@ -146,6 +146,10 @@ export function AdminPanels() {
   const [newPanelistName, setNewPanelistName] = useState('');
   const [newPanelistEmail, setNewPanelistEmail] = useState('');
   const [newPanelistPassword, setNewPanelistPassword] = useState('');
+  const [newPanelistRole, setNewPanelistRole] = useState('panel');
+  const [newPanelistHRName, setNewPanelistHRName] = useState('');
+  const [newPanelistHRGrade, setNewPanelistHRGrade] = useState('');
+  const [newPanelistHRMobile, setNewPanelistHRMobile] = useState('');
   const [creatingPanelist, setCreatingPanelist] = useState(false);
 
   const handleCreatePanelist = async () => {
@@ -158,13 +162,16 @@ export function AdminPanels() {
       const res = await fetch(`${API_BASE_URL}/admin/add-panel`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'admin_email': localStorage.getItem('userEmail') || 'admin@example.com',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           full_name: newPanelistName,
           email: newPanelistEmail,
-          password: newPanelistPassword
+          password: newPanelistPassword,
+          role: newPanelistRole,
+          hr_panelists_name: newPanelistHRName || undefined,
+          hr_panelist_grade: newPanelistHRGrade || undefined,
+          hr_panel_mobile: newPanelistHRMobile || undefined
         })
       });
       if (res.ok) {
@@ -173,6 +180,10 @@ export function AdminPanels() {
         setNewPanelistName('');
         setNewPanelistEmail('');
         setNewPanelistPassword('');
+        setNewPanelistRole('panel');
+        setNewPanelistHRName('');
+        setNewPanelistHRGrade('');
+        setNewPanelistHRMobile('');
         fetchDbPanels();
       } else {
         const errData = await res.json();
@@ -1664,43 +1675,100 @@ export function AdminPanels() {
       {/* Add Panelist Modal */}
       <Modal
         isOpen={createPanelistOpen}
-        onClose={() => setCreatePanelistOpen(false)}
+        onClose={() => {
+          setCreatePanelistOpen(false);
+          setNewPanelistName('');
+          setNewPanelistEmail('');
+          setNewPanelistPassword('');
+          setNewPanelistRole('panel');
+          setNewPanelistHRName('');
+          setNewPanelistHRGrade('');
+          setNewPanelistHRMobile('');
+        }}
         title="Add New Panel Member"
         size="md"
       >
         <div className="space-y-4">
-          <Input
-            label="Full Name"
-            placeholder="e.g. Sarah Johnson"
-            value={newPanelistName}
-            onChange={(e) => setNewPanelistName(e.target.value)}
-          />
-          <Input
-            label="Email Address"
-            type="email"
-            placeholder="e.g. sarah@example.com"
-            value={newPanelistEmail}
-            onChange={(e) => setNewPanelistEmail(e.target.value)}
-          />
-          <Input
-            label="Password"
-            type="password"
-            placeholder="••••••••"
-            value={newPanelistPassword}
-            onChange={(e) => setNewPanelistPassword(e.target.value)}
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Full Name *"
+              placeholder="e.g. Sarah Johnson"
+              value={newPanelistName}
+              onChange={(e) => setNewPanelistName(e.target.value)}
+              required
+            />
+            <Input
+              label="Email Address *"
+              type="email"
+              placeholder="e.g. sarah@example.com"
+              value={newPanelistEmail}
+              onChange={(e) => setNewPanelistEmail(e.target.value)}
+              required
+            />
+            <Input
+              label="Password *"
+              type="password"
+              placeholder="••••••••"
+              value={newPanelistPassword}
+              onChange={(e) => setNewPanelistPassword(e.target.value)}
+              required
+            />
+            <div className="w-full">
+              <label className="block text-[10px] font-medium text-secondary/70 mb-1.5 uppercase tracking-wider">
+                Role
+              </label>
+              <select
+                value={newPanelistRole}
+                onChange={(e) => setNewPanelistRole(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-white/70 backdrop-blur-xl border border-white/60 rounded-xl text-xs text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all cursor-pointer"
+              >
+                <option value="panel" className="bg-[#1e2345] text-white">Panel</option>
+                <option value="admin" className="bg-[#1e2345] text-white">Admin</option>
+                <option value="candidate" className="bg-[#1e2345] text-white">Candidate</option>
+              </select>
+            </div>
+            <Input
+              label="HR Panelists Name"
+              placeholder="e.g. Sarah Johnson"
+              value={newPanelistHRName}
+              onChange={(e) => setNewPanelistHRName(e.target.value)}
+            />
+            <Input
+              label="HR Panelist Grade"
+              placeholder="e.g. Grade A"
+              value={newPanelistHRGrade}
+              onChange={(e) => setNewPanelistHRGrade(e.target.value)}
+            />
+            <div className="sm:col-span-2">
+              <Input
+                label="HR Panel Mobile"
+                placeholder="e.g. +91 9876543210"
+                value={newPanelistHRMobile}
+                onChange={(e) => setNewPanelistHRMobile(e.target.value)}
+              />
+            </div>
+          </div>
           <div className="flex space-x-3 pt-2">
             <Button
               className="flex-grow"
               onClick={handleCreatePanelist}
               disabled={creatingPanelist}
             >
-              {creatingPanelist ? 'Creating...' : 'Create Panelist'}
+              {creatingPanelist ? 'Creating...' : 'Create Panel Member'}
             </Button>
             <Button
               variant="outline"
               className="flex-grow"
-              onClick={() => setCreatePanelistOpen(false)}
+              onClick={() => {
+                setCreatePanelistOpen(false);
+                setNewPanelistName('');
+                setNewPanelistEmail('');
+                setNewPanelistPassword('');
+                setNewPanelistRole('panel');
+                setNewPanelistHRName('');
+                setNewPanelistHRGrade('');
+                setNewPanelistHRMobile('');
+              }}
               disabled={creatingPanelist}
             >
               Cancel

@@ -42,6 +42,10 @@ class AddPanelRequest(BaseModel):
     full_name: str
     email: str
     password: str
+    role: Optional[str] = "panel"
+    hr_panelists_name: Optional[str] = None
+    hr_panelist_grade: Optional[str] = None
+    hr_panel_mobile: Optional[str] = None
 
 
 class PanelResponse(BaseModel):
@@ -66,25 +70,12 @@ def get_current_user_from_email(email: str, db) -> Optional[User]:
 
 
 @router.post("/add-panel", response_model=AdminResponse)
-def add_panel(data: AddPanelRequest, admin_email: str = Header(None)):
+def add_panel(data: AddPanelRequest):
     """
     Add a new panel member (interview panelist).
-    Only admins can add panel members.
-    admin_email should be passed as a header with the admin's email.
     """
     db = SessionLocal()
     try:
-        # Verify admin
-        if not admin_email:
-            raise HTTPException(status_code=401, detail="Admin email required in headers")
-
-        admin_user = get_current_user_from_email(admin_email, db)
-        if not admin_user:
-            raise HTTPException(status_code=401, detail="Admin not found")
-
-        if admin_user.role != "admin":
-            raise HTTPException(status_code=403, detail="Only admins can add panel members")
-
         # Check if email already exists
         existing_user = db.query(User).filter(User.email == data.email).first()
         if existing_user:
@@ -95,7 +86,7 @@ def add_panel(data: AddPanelRequest, admin_email: str = Header(None)):
             full_name=data.full_name,
             email=data.email,
             password=data.password,
-            role="panel"
+            role=data.role or "panel"
         )
         db.add(panel_user)
         db.flush()
@@ -103,7 +94,9 @@ def add_panel(data: AddPanelRequest, admin_email: str = Header(None)):
         # Create corresponding Panel record
         panel = Panel(
             user_id=panel_user.id,
-            hr_panelists_name=panel_user.full_name,
+            hr_panelists_name=data.hr_panelists_name or panel_user.full_name,
+            hr_panelist_grade=data.hr_panelist_grade,
+            hr_panel_mobile=data.hr_panel_mobile,
             interview_type="HR/Technical"
         )
         db.add(panel)
