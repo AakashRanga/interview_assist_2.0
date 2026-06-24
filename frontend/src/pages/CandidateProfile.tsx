@@ -718,19 +718,7 @@ export function CandidateProfile() {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!resume) {
-      toast.error('Please upload your resume');
-      return;
-    }
-    const saved = await handleSave(false);
-    if (saved) {
-      toast.success('Profile saved! Auto-scheduling your interview...');
-      setTimeout(() => {
-        toast.success('Interview scheduled for May 15, 2026 at 2:00 PM');
-      }, 1500);
-    }
-  };
+
   const sections = [
   {
     id: 'personal',
@@ -1826,11 +1814,8 @@ export function CandidateProfile() {
               }}
               className="flex justify-end space-x-3">
               
-              <Button variant="outline" size="lg" onClick={() => handleSave(true)}>
+              <Button variant="primary" size="lg" onClick={() => handleSave(true)}>
                 Save Draft
-              </Button>
-              <Button size="lg" onClick={handleSubmit} disabled={appliedRoleIds.size > 0}>
-                Schedule Interview
               </Button>
             </motion.div>
           )}
