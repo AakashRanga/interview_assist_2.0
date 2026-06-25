@@ -37,7 +37,7 @@ def process_resume(candidate_id):
 
 
 @celery.task(bind=True, max_retries=20, default_retry_delay=60)
-def schedule_interview_task(self, schedule_id, candidate_id):
+def schedule_interview_task(self, schedule_id, candidate_id, is_reschedule=False, is_first_panel_assignment=False, is_panel_reassignment=False):
 
     db = SessionLocal()
 
@@ -84,6 +84,7 @@ def schedule_interview_task(self, schedule_id, candidate_id):
         job_role_title = " "
         job_type = "Online"
         venue = None
+        application = None
 
         if schedule.job_id:
 
@@ -120,10 +121,7 @@ def schedule_interview_task(self, schedule_id, candidate_id):
             if application and application.status not in ["Selected", "Rejected"]:
                 application.status = "Scheduled"
             db.commit()
-            return {
-                "status": "skipped",
-                "message": "Offline interview - no gmeet link needed"
-            }
+            # Do not return early, proceed to send emails!
 
         # ============================================
         # PREPARE PAYLOAD FOR N8N
@@ -210,60 +208,63 @@ def schedule_interview_task(self, schedule_id, candidate_id):
         # CALL N8N WEBHOOK
         # ============================================
 
-        meet_link = schedule.gmeet_link
-        if not meet_link:
-            # Fallback: check if this candidate has another schedule with a gmeet_link
-            prior_schedule = db.query(InterviewSchedule).filter(
-                InterviewSchedule.candidate_id == candidate_id,
-                InterviewSchedule.gmeet_link.isnot(None),
-                InterviewSchedule.gmeet_link != ""
-            ).order_by(InterviewSchedule.created_at.desc()).first()
-            if prior_schedule:
-                meet_link = prior_schedule.gmeet_link
-                schedule.gmeet_link = meet_link
-                db.add(schedule)
-                db.commit()
+        meet_link = None
+        if not is_offline:
+            meet_link = schedule.gmeet_link
+            if not meet_link:
+                # Fallback: check if this candidate has another schedule with a gmeet_link
+                prior_schedule = db.query(InterviewSchedule).filter(
+                    InterviewSchedule.candidate_id == candidate_id,
+                    InterviewSchedule.gmeet_link.isnot(None),
+                    InterviewSchedule.gmeet_link != "",
+                    InterviewSchedule.interview_mode != "offline"
+                ).order_by(InterviewSchedule.created_at.desc()).first()
+                if prior_schedule:
+                    meet_link = prior_schedule.gmeet_link
+                    schedule.gmeet_link = meet_link
+                    db.add(schedule)
+                    db.commit()
 
-        if not meet_link:
-            try:
-                response = requests.post(
-                    N8N_WEBHOOK_URL,
-                    json=payload,
-                    timeout=60
-                )
-                print(f"n8n response status: {response.status_code}")
-                if response.status_code == 200:
-                    result = response.json()
-                    print("Parsed n8n response:")
-                    print(result)
-                    if isinstance(result, list):
-                        event_data = result[0] if result else {}
-                    else:
-                        event_data = result
-                    meet_link = (
-                        event_data.get("hangoutLink")
-                        or event_data.get("meetLink")
+            if not meet_link:
+                try:
+                    response = requests.post(
+                        N8N_WEBHOOK_URL,
+                        json=payload,
+                        timeout=60
                     )
+                    print(f"n8n response status: {response.status_code}")
+                    if response.status_code == 200:
+                        result = response.json()
+                        print("Parsed n8n response:")
+                        print(result)
+                        if isinstance(result, list):
+                            event_data = result[0] if result else {}
+                        else:
+                            event_data = result
+                        meet_link = (
+                            event_data.get("hangoutLink")
+                            or event_data.get("meetLink")
+                        )
 
+                        if not meet_link:
+                            conference = event_data.get("conferenceData", {})
+                            entry_points = conference.get("entryPoints", [])
+
+                            if entry_points:
+                                meet_link = entry_points[0].get("uri")
+                    
                     if not meet_link:
-                        conference = event_data.get("conferenceData", {})
-                        entry_points = conference.get("entryPoints", [])
+                        raise ValueError(f"No hangoutLink generated. Response Code: {response.status_code}")
+                except Exception as e:
+                    print(f"Error calling n8n or parsing link: {str(e)}. Triggering task retry...")
+                    raise self.retry(exc=e)
 
-                        if entry_points:
-                            meet_link = entry_points[0].get("uri")
-                
-                if not meet_link:
-                    raise ValueError(f"No hangoutLink generated. Response Code: {response.status_code}")
-            except Exception as e:
-                print(f"Error calling n8n or parsing link: {str(e)}. Triggering task retry...")
-                raise self.retry(exc=e)
-
-            schedule.gmeet_link = meet_link
+                schedule.gmeet_link = meet_link
 
         schedule.interview_status = "scheduled"
 
         # Update PanelGroup's meet_link dynamically based on candidate's interview slot
-        if candidate.panel_group_id:
+        if not is_offline and meet_link and candidate.panel_group_id:
             try:
                 group_id = int(candidate.panel_group_id)
                 group = db.query(PanelGroup).filter(PanelGroup.id == group_id).first()
@@ -313,12 +314,23 @@ def schedule_interview_task(self, schedule_id, candidate_id):
             cand_panel_names = ", ".join([p.hr_panelists_name for p in cand_panels if p.hr_panelists_name])
             with_panelist_str = f" with Panelist(s) {cand_panel_names}" if cand_panel_names else ""
             
+            # Format the email content
+            subject_action = "Rescheduled" if is_reschedule else "Scheduled"
+            subject_cand = f"Interview {subject_action}"
+            subject_panel = f"Interview Rescheduled Notification" if is_reschedule else "Interview Panel Assignment"
+            
+            level_str = f" ({schedule.interview_level})" if schedule.interview_level else ""
+            level_prefix = f"{schedule.interview_level} " if schedule.interview_level else ""
+            
+            action_desc_cand = f"has been rescheduled successfully" if is_reschedule else f"has been scheduled successfully"
+            action_desc_panel = f"has been rescheduled" if is_reschedule else f"You have been assigned to interview candidate {candidate.full_name}"
+
             if is_offline:
                 location_info = f"Venue: {venue or 'TBD'}"
                 email_body_candidate = (
                     f"Dear {candidate.full_name},\n\n"
-                    f"Your interview for the {job_role_title} role{with_panelist_str} "
-                    f"has been scheduled successfully.\n\n"
+                    f"Your {level_prefix}interview for the {job_role_title} role{with_panelist_str} "
+                    f"{action_desc_cand}.\n\n"
                     f"Date: {schedule.date}\n"
                     f"Time: {schedule.start_time.strftime('%I:%M %p')} - {schedule.end_time.strftime('%I:%M %p')} IST\n"
                     f"{location_info}\n\n"
@@ -329,8 +341,8 @@ def schedule_interview_task(self, schedule_id, candidate_id):
                 meet_link_info = f"Google Meet Link: {meet_link}\n\n" if meet_link else ""
                 email_body_candidate = (
                     f"Dear {candidate.full_name},\n\n"
-                    f"Your interview for the {job_role_title} role{with_panelist_str} "
-                    f"has been scheduled successfully.\n\n"
+                    f"Your {level_prefix}interview for the {job_role_title} role{with_panelist_str} "
+                    f"{action_desc_cand}.\n\n"
                     f"Date: {schedule.date}\n"
                     f"Time: {schedule.start_time.strftime('%I:%M %p')} - {schedule.end_time.strftime('%I:%M %p')} IST\n"
                     f"{meet_link_info}"
@@ -338,43 +350,79 @@ def schedule_interview_task(self, schedule_id, candidate_id):
                     f"Recruitment Team"
                 )
             
+            email_errors = []
+
             # Send candidate email
-            try:
-                send_email(candidate.email, "Interview Scheduled", email_body_candidate)
-                print(f"Sent scheduling email to candidate {candidate.email}")
-            except Exception as email_err:
-                print(f"Failed to send email to candidate: {email_err}")
-            
-            # Send panelist emails (multi-dispatch) - ONLY to explicitly assigned panels
-            for p in cand_panels:
-                if is_offline:
-                    email_body_panelist = (
-                        f"Dear {p.hr_panelists_name},\n\n"
-                        f"You have been assigned to interview candidate {candidate.full_name} for the {job_role_title} role.\n\n"
-                        f"Date: {schedule.date}\n"
-                        f"Time: {schedule.start_time.strftime('%I:%M %p')} - {schedule.end_time.strftime('%I:%M %p')} IST\n"
-                        f"{location_info}\n\n"
-                        f"Please be present at the venue.\n\n"
-                        f"Best Regards,\n"
-                        f"Recruitment Team"
-                    )
-                else:
-                    email_body_panelist = (
-                        f"Dear {p.hr_panelists_name},\n\n"
-                        f"You have been assigned to interview candidate {candidate.full_name} for the {job_role_title} role.\n\n"
-                        f"Date: {schedule.date}\n"
-                        f"Time: {schedule.start_time.strftime('%I:%M %p')} - {schedule.end_time.strftime('%I:%M %p')} IST\n"
-                        f"{meet_link_info}"
-                        f"Please join on time.\n\n"
-                        f"Best Regards,\n"
-                        f"Recruitment Team"
-                    )
-                panelist_email = p.user.email if (p.user and p.user.email) else (f"panel_{p.hr_panelist_emp_id}@example.com" if p.hr_panelist_emp_id else "panel@example.com")
+            if is_reschedule or is_first_panel_assignment:
                 try:
-                    send_email(panelist_email, "Interview Panel Assignment", email_body_panelist)
-                    print(f"Sent scheduling email to panelist {panelist_email}")
+                    send_email(candidate.email, subject_cand, email_body_candidate)
+                    print(f"Sent scheduling email to candidate {candidate.email}")
                 except Exception as email_err:
-                    print(f"Failed to send email to panelist {panelist_email}: {email_err}")
+                    print(f"Failed to send email to candidate: {email_err}")
+                    email_errors.append(email_err)
+            
+            # Send panelist emails (multi-dispatch) - ONLY if rescheduled, first-time panel assignment, or reassigned panelist
+            if is_reschedule or is_first_panel_assignment or is_panel_reassignment:
+                for p in cand_panels:
+                    if is_offline:
+                        if is_reschedule:
+                            email_body_panelist = (
+                                f"Dear {p.hr_panelists_name},\n\n"
+                                f"The {level_prefix}interview for candidate {candidate.full_name} for the {job_role_title} role "
+                                f"has been rescheduled.\n\n"
+                                f"Date: {schedule.date}\n"
+                                f"Time: {schedule.start_time.strftime('%I:%M %p')} - {schedule.end_time.strftime('%I:%M %p')} IST\n"
+                                f"{location_info}\n\n"
+                                f"Please be present at the venue.\n\n"
+                                f"Best Regards,\n"
+                                f"Recruitment Team"
+                            )
+                        else:
+                            email_body_panelist = (
+                                f"Dear {p.hr_panelists_name},\n\n"
+                                f"You have been assigned to interview candidate {candidate.full_name} for the {job_role_title} role{level_str}.\n\n"
+                                f"Date: {schedule.date}\n"
+                                f"Time: {schedule.start_time.strftime('%I:%M %p')} - {schedule.end_time.strftime('%I:%M %p')} IST\n"
+                                f"{location_info}\n\n"
+                                f"Please be present at the venue.\n\n"
+                                f"Best Regards,\n"
+                                f"Recruitment Team"
+                            )
+                    else:
+                        if is_reschedule:
+                            email_body_panelist = (
+                                f"Dear {p.hr_panelists_name},\n\n"
+                                f"The {level_prefix}interview for candidate {candidate.full_name} for the {job_role_title} role "
+                                f"has been rescheduled.\n\n"
+                                f"Date: {schedule.date}\n"
+                                f"Time: {schedule.start_time.strftime('%I:%M %p')} - {schedule.end_time.strftime('%I:%M %p')} IST\n"
+                                        f"{meet_link_info}"
+                                f"Please join on time.\n\n"
+                                f"Best Regards,\n"
+                                f"Recruitment Team"
+                            )
+                        else:
+                            email_body_panelist = (
+                                f"Dear {p.hr_panelists_name},\n\n"
+                                f"You have been assigned to interview candidate {candidate.full_name} for the {job_role_title} role{level_str}.\n\n"
+                                f"Date: {schedule.date}\n"
+                                f"Time: {schedule.start_time.strftime('%I:%M %p')} - {schedule.end_time.strftime('%I:%M %p')} IST\n"
+                                f"{meet_link_info}"
+                                f"Please join on time.\n\n"
+                                f"Best Regards,\n"
+                                f"Recruitment Team"
+                            )
+                    panelist_email = p.user.email if (p.user and p.user.email) else (f"panel_{p.hr_panelist_emp_id}@example.com" if p.hr_panelist_emp_id else "panel@example.com")
+                    try:
+                        send_email(panelist_email, subject_panel, email_body_panelist)
+                        print(f"Sent scheduling email to panelist {panelist_email}")
+                    except Exception as email_err:
+                        print(f"Failed to send email to panelist {panelist_email}: {email_err}")
+                        email_errors.append(email_err)
+
+            if email_errors:
+                print(f"Failed to send some emails ({len(email_errors)} failures). Raising retry exception...")
+                raise self.retry(exc=email_errors[0])
         except Exception as e:
             print(f"Failed to execute email notification flow: {e}")
 

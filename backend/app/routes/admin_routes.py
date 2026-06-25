@@ -424,6 +424,8 @@ class RescheduleInterviewRequest(BaseModel):
     start_time: str
     end_time: str
     interview_level: Optional[str] = None
+    interview_mode: Optional[str] = None
+    venue: Optional[str] = None
 
 
 @router.get("/candidates", response_model=List[CandidateAdminDetail])
@@ -788,6 +790,9 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
                 detail="Candidate does not have a scheduled interview slot. Please schedule date and time first."
             )
             
+        # Check if first time or reassigned panel
+        old_panel_id = schedule.panel_id
+
         # Update schedule with panel
         schedule.panel_id = data.panel_id
         db.add(schedule)
@@ -821,7 +826,14 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
                     db.add(group)
 
         # Trigger Celery task to generate meeting link / send emails
-        schedule_interview_task.delay(schedule.id, candidate.id)
+        is_first_panel_assignment = not old_panel_id
+        is_panel_reassignment = bool(old_panel_id and old_panel_id != data.panel_id)
+        schedule_interview_task.delay(
+            schedule.id,
+            candidate.id,
+            is_first_panel_assignment=is_first_panel_assignment,
+            is_panel_reassignment=is_panel_reassignment
+        )
         
         # Update candidate status to Scheduled
         candidate.status = "Scheduled"
@@ -1318,19 +1330,26 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
         if application:
             job_id = application.role_id
 
-        # Check job_type for offline interviews
-        job_type = "Online"
-        venue = None
-        if application and application.role:
-            job_type = application.role.job_type or "Online"
-            venue = application.role.venue
-        is_offline = job_type and job_type.lower() == "offline"
+        # Determine mode: request data overrides existing / role job type
+        interview_mode = data.interview_mode or (schedule.interview_mode if schedule else None)
+        if not interview_mode and application and application.role:
+            interview_mode = application.role.job_type or "Online"
+        
+        if not interview_mode:
+            interview_mode = "Online"
+            
+        is_offline = interview_mode.lower() == "offline"
+        
+        venue = data.venue if is_offline else None
+        if is_offline and not venue:
+            venue = (schedule.gmeet_link if schedule and schedule.interview_mode and schedule.interview_mode.lower() == "offline" else None) or (application.role.venue if application and application.role else None)
 
         if schedule:
             schedule.date = target_date
             schedule.start_time = target_start_time
             schedule.end_time = target_end_time
             schedule.interview_status = "pending"
+            schedule.interview_mode = interview_mode.lower()
             if data.interview_level:
                 schedule.interview_level = data.interview_level
                 candidate.current_level = data.interview_level
@@ -1343,6 +1362,7 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
                 date=target_date,
                 start_time=target_start_time,
                 end_time=target_end_time,
+                interview_mode=interview_mode.lower(),
                 interview_level=data.interview_level,
                 interview_status="pending"
             )
@@ -1351,16 +1371,14 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
                 db.add(candidate)
             db.add(schedule)
         
-        # Reuse existing gmeet_link if any
-        if not schedule.gmeet_link:
-            prior_schedule = db.query(InterviewSchedule).filter(
-                InterviewSchedule.candidate_id == candidate_id,
-                InterviewSchedule.gmeet_link.isnot(None),
-                InterviewSchedule.gmeet_link != ""
-            ).order_by(InterviewSchedule.created_at.desc()).first()
-            if prior_schedule:
-                schedule.gmeet_link = prior_schedule.gmeet_link
-                db.add(schedule)
+        # Handle gmeet_link vs venue based on interview mode
+        if is_offline:
+            schedule.gmeet_link = venue
+            db.add(schedule)
+        else:
+            # Online mode: clear the gmeet_link to force a new calendar invite and meet link generation via n8n for the new time
+            schedule.gmeet_link = None
+            db.add(schedule)
 
         # Update PanelGroup's meet_link directly
         if schedule.gmeet_link and candidate.panel_group_id:
@@ -1412,13 +1430,8 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
         except Exception as notif_error:
             print(f"Failed to create notification: {notif_error}")
 
-        if not is_offline:
-            schedule_interview_task.delay(schedule.id, candidate.id)
-        else:
-            # For offline interviews, mark as scheduled without gmeet link
-            schedule.interview_status = "scheduled"
-            db.add(schedule)
-            db.commit()
+        # Always trigger Celery task to send emails (and generate new gmeet link if online)
+        schedule_interview_task.delay(schedule.id, candidate.id, is_reschedule=True)
 
         if is_offline:
             return {

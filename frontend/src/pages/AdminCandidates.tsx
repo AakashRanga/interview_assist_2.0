@@ -83,6 +83,8 @@ export function AdminCandidates() {
   const [schedLevels, setSchedLevels] = useState<string[]>(['Level 1']);
   const [rescheduleLevel, setRescheduleLevel] = useState('Level 1');
   const [rescheduleLevels, setRescheduleLevels] = useState<string[]>([]);
+  const [rescheduleMode, setRescheduleMode] = useState('Online');
+  const [rescheduleVenue, setRescheduleVenue] = useState('');
   const [completedLevels, setCompletedLevels] = useState<string[]>([]);
   const [rejectionModalOpen, setRejectionModalOpen] = useState(false);
   const [rejectionReasonText, setRejectionReasonText] = useState('');
@@ -172,6 +174,8 @@ export function AdminCandidates() {
       }
       setNewStartTime(startTime);
       setNewEndTime(endTime);
+      setRescheduleMode(candidate.mode || 'Online');
+      setRescheduleVenue(candidate.venue || '');
       fetch(`${API_BASE_URL}/admin/candidates/${candidate.id}/next-level-info`)
         .then((res) => {
           if (res.ok) return res.json();
@@ -180,11 +184,13 @@ export function AdminCandidates() {
         .then((data) => {
           setRescheduleLevel(candidate.current_level || data.next_level || 'Level 1');
           setRescheduleLevels(data.role_levels || ['Level 1']);
+          setCompletedLevels(data.completed_levels || []);
           setRescheduleOpen(true);
         })
         .catch(() => {
           setRescheduleLevel(candidate.current_level || 'Level 1');
           setRescheduleLevels(['Level 1']);
+          setCompletedLevels([]);
           setRescheduleOpen(true);
         });
     }
@@ -285,7 +291,9 @@ export function AdminCandidates() {
           date: newDate,
           start_time: newStartTime,
           end_time: newEndTime,
-          interview_level: rescheduleLevel
+          interview_level: rescheduleLevel,
+          interview_mode: rescheduleMode,
+          venue: rescheduleMode === 'Offline' ? rescheduleVenue : undefined
         }),
       });
       if (!res.ok) {
@@ -907,30 +915,18 @@ export function AdminCandidates() {
       <Modal
         isOpen={rescheduleOpen}
         onClose={() => setRescheduleOpen(false)}
-        title={`Reschedule ${selectedCandidate?.name ?? ''}`}
+        title={`Reschedule Interview Slot - ${selectedCandidate?.name ?? ''}`}
         size="md">
 
         <div className="space-y-4">
-          <Input
-            type="date"
-            label="New Date"
-            value={newDate}
-            onChange={(e) => setNewDate(e.target.value)}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              type="time"
-              label="Start Time"
-              value={newStartTime}
-              onChange={(e) => setNewStartTime(e.target.value)}
-            />
-            <Input
-              type="time"
-              label="End Time"
-              value={newEndTime}
-              onChange={(e) => setNewEndTime(e.target.value)}
-            />
+          <div className="p-3 bg-primary/5 rounded-xl border border-primary/10">
+            <p className="text-[10px] text-primary font-semibold uppercase tracking-wider mb-1">Detected Interview Level</p>
+            <p className="text-xs text-secondary font-medium">Next: {rescheduleLevel}</p>
+            {completedLevels.length > 0 && (
+              <p className="text-[9px] text-secondary/50 mt-1">Completed rounds: {completedLevels.join(', ')}</p>
+            )}
           </div>
+
           {rescheduleLevels.length > 0 && (
             <div>
               <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
@@ -949,18 +945,69 @@ export function AdminCandidates() {
               </select>
             </div>
           )}
-          <div className="flex space-x-3">
+
+          <Input
+            type="date"
+            label="Date"
+            value={newDate}
+            onChange={(e) => setNewDate(e.target.value)}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              type="time"
+              label="Start Time"
+              value={newStartTime}
+              onChange={(e) => setNewStartTime(e.target.value)}
+            />
+            <Input
+              type="time"
+              label="End Time"
+              value={newEndTime}
+              onChange={(e) => setNewEndTime(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
+              Interview Mode
+            </label>
+            <div className="flex space-x-3">
+              {['Online', 'Offline'].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setRescheduleMode(m)}
+                  className={`flex-grow py-2 text-xs font-semibold rounded-xl border transition-all ${rescheduleMode === m
+                    ? 'bg-primary border-primary text-white shadow-md shadow-primary/20'
+                    : 'bg-secondary border-white/60 text-white hover:bg-secondary-50'
+                    }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {rescheduleMode === 'Offline' && (
+            <Input
+              type="text"
+              label="Venue"
+              placeholder="Enter interview venue/room details..."
+              value={rescheduleVenue}
+              onChange={(e) => setRescheduleVenue(e.target.value)}
+            />
+          )}
+
+          <div className="flex space-x-3 mt-6">
             <Button
               className="flex-grow"
               onClick={handleConfirmReschedule}>
-
               Confirm
             </Button>
             <Button
               variant="outline"
               className="flex-grow"
               onClick={() => setRescheduleOpen(false)}>
-
               Cancel
             </Button>
           </div>
