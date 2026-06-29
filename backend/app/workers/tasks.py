@@ -423,6 +423,8 @@ def schedule_interview_task(self, schedule_id, candidate_id, is_reschedule=False
             if email_errors:
                 print(f"Failed to send some emails ({len(email_errors)} failures). Raising retry exception...")
                 raise self.retry(exc=email_errors[0])
+        except Retry:
+            raise
         except Exception as e:
             print(f"Failed to execute email notification flow: {e}")
 
@@ -537,3 +539,10 @@ def send_interview_reminder_task(schedule_id):
         return True
     finally:
         db.close()
+
+
+@celery.task(bind=True, max_retries=20, default_retry_delay=60, autoretry_for=(Exception,))
+def send_email_async_task(self, to_email, subject, body):
+    from app.services.email_service import send_email
+    send_email(to_email, subject, body)
+    return True

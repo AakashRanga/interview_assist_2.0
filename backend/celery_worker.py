@@ -22,6 +22,7 @@ from app.models.interview_schedule import InterviewSchedule
 from app.models.panel_group import PanelGroup
 from app.models.panel import Panel
 from app.models.panel_feedback import PanelFeedback
+from app.models.email_log import EmailLog
 
 
 # Import tasks to register them with Celery

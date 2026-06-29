@@ -56,7 +56,7 @@ export function AdminCandidates() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [groupFilter, setGroupFilter] = useState<string>('all');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [menuCoords, setMenuCoords] = useState<{ top: number; left: number } | null>(null);
+  const [menuCoords, setMenuCoords] = useState<{ top: number; left: number; openUpward: boolean } | null>(null);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
   const [feedbackViewOpen, setFeedbackViewOpen] = useState(false);
@@ -850,9 +850,13 @@ export function AdminCandidates() {
                                 setMenuCoords(null);
                               } else {
                                 const rect = e.currentTarget.getBoundingClientRect();
+                                const spaceBelow = window.innerHeight - rect.bottom;
+                                const estimatedHeight = 220;
+                                const openUpward = spaceBelow < estimatedHeight && rect.top > estimatedHeight;
                                 setMenuCoords({
-                                  top: rect.bottom,
-                                  left: rect.right - 176
+                                  top: openUpward ? rect.top : rect.bottom,
+                                  left: Math.min(window.innerWidth - 186, Math.max(10, rect.right - 176)),
+                                  openUpward
                                 });
                                 setSelectedCandidate(c);
                                 setOpenMenu(c.id);
@@ -1227,9 +1231,12 @@ export function AdminCandidates() {
         <div
           style={{
             position: 'fixed',
-            top: `${menuCoords.top + 4}px`,
+            top: menuCoords.openUpward ? `${menuCoords.top - 4}px` : `${menuCoords.top + 4}px`,
             left: `${menuCoords.left}px`,
+            transform: menuCoords.openUpward ? 'translateY(-100%)' : 'none',
             zIndex: 9999,
+            maxHeight: 'calc(100vh - 20px)',
+            overflowY: 'auto'
           }}
           className="candidate-menu-container w-44 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
         >

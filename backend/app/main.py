@@ -14,6 +14,7 @@ from app.routes.feedback_routes import router as feedback_router
 from app.database import engine, Base
 from app.models.panel_group import PanelGroup
 from app.models.panel_feedback import PanelFeedback
+from app.models.email_log import EmailLog
 
 Base.metadata.create_all(bind=engine)
 
