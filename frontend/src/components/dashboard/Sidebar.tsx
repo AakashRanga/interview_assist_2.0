@@ -174,11 +174,6 @@ export function Sidebar({
     label: 'Roles'
   },
   {
-    to: '/admin/analytics',
-    icon: BarChart3Icon,
-    label: 'Analytics'
-  },
-  {
     to: '/admin/settings',
     icon: SettingsIcon,
     label: 'Settings'

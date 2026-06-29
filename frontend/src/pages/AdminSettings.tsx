@@ -127,11 +127,6 @@ export function AdminSettings() {
     icon: UserIcon
   },
   {
-    id: 'notifications' as Section,
-    label: 'Notifications',
-    icon: BellIcon
-  },
-  {
     id: 'security' as Section,
     label: 'Security',
     icon: ShieldIcon
@@ -140,11 +135,6 @@ export function AdminSettings() {
     id: 'appearance' as Section,
     label: 'Appearance',
     icon: PaletteIcon
-  },
-  {
-    id: 'integrations' as Section,
-    label: 'Integrations',
-    icon: ServerIcon
   }];
 
   return (
