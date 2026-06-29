@@ -41,9 +41,9 @@ export function Modal({
             opacity: 0
           }}
           onClick={handleBackdropClick}
-          className="fixed inset-0 bg-secondary/20 backdrop-blur-sm z-50" />
+          className="fixed inset-0 bg-secondary/20 backdrop-blur-sm z-[100]" />
 
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4">
             <motion.div
             initial={{
               opacity: 0,

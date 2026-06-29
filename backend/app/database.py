@@ -26,3 +26,12 @@ SessionLocal = sessionmaker(
 )
 
 Base = declarative_base()
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
+
+def ist_now():
+    return datetime.now(IST).replace(tzinfo=None)
+    

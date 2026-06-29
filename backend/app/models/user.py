@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from app.database import Base
+from app.database import Base, ist_now
 
 
 class User(Base):
@@ -12,6 +12,6 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=ist_now, nullable=False)
 
     candidate = relationship("Candidate", back_populates="user", uselist=False, cascade="all, delete-orphan")

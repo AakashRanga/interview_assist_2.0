@@ -122,12 +122,6 @@ export function Login() {
                 <input type="checkbox" className="mr-1.5 rounded" disabled={loading} />
                 Remember me
               </label>
-              <a
-                href="#"
-                className="text-primary hover:text-primary/80 transition-colors">
-                
-                Forgot password?
-              </a>
             </div>
 
             <Button type="submit"  id="login-button" size="lg" className="w-full" disabled={loading}>

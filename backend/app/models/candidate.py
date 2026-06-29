@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from app.database import Base
+from app.database import Base, ist_now
 
 
 class Candidate(Base):
@@ -25,8 +25,8 @@ class Candidate(Base):
     panel_group_id = Column(String(100), nullable=True)
     current_level = Column(String(100), nullable=True, default="Level 1")
     rejection_reason = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=ist_now, nullable=False)
+    updated_at = Column(DateTime, default=ist_now, onupdate=ist_now, nullable=False)
 
     user = relationship("User", back_populates="candidate")
     applications = relationship("CandidateApplication", back_populates="candidate")

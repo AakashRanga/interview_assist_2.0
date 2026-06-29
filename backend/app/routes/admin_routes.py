@@ -14,6 +14,7 @@ from app.models.interview_schedule import InterviewSchedule
 from app.models.job_role import JobRole
 from app.models.panel import Panel
 from app.models.panel_group import PanelGroup
+from app.models.panel_feedback import PanelFeedback
 from app.services.notification_service import NotificationService
 from app.models.notification import ActivityType, NotificationType
 from app.workers.tasks import schedule_interview_task, send_interview_reminder_task
@@ -407,6 +408,7 @@ class CandidateAdminDetail(BaseModel):
     appliedDate: str
     roleId: Optional[int] = None
     rejectionReason: Optional[str] = None
+    userId: Optional[int] = None
 
 
 class UpdateCandidateStatusRequest(BaseModel):
@@ -442,7 +444,8 @@ def get_admin_candidates():
             
             role_title = "No Applied Role"
             app_status = c.status
-            applied_date_str = c.created_at.isoformat() if c.created_at else datetime.utcnow().isoformat()
+            from app.database import ist_now
+            applied_date_str = c.created_at.isoformat() if c.created_at else ist_now().isoformat()
             job_type = "Online"
             venue = None
             job_id = None
@@ -456,12 +459,14 @@ def get_admin_candidates():
                 job_id = application.role_id
 
             # 2. Fetch latest interview schedule
-            sched_query = db.query(InterviewSchedule).filter(
-                InterviewSchedule.candidate_id == c.id
-            )
-            if job_id:
-                sched_query = sched_query.filter(InterviewSchedule.job_id == job_id)
-            schedule = sched_query.order_by(InterviewSchedule.created_at.desc()).first()
+            schedule = db.query(InterviewSchedule).filter(
+                InterviewSchedule.candidate_id == c.id,
+                InterviewSchedule.interview_status != "cancelled"
+            ).order_by(InterviewSchedule.created_at.desc()).first()
+            if not schedule:
+                schedule = db.query(InterviewSchedule).filter(
+                    InterviewSchedule.candidate_id == c.id
+                ).order_by(InterviewSchedule.created_at.desc()).first()
 
             interview_date = None
             interview_time = None
@@ -483,8 +488,8 @@ def get_admin_candidates():
                     venue = schedule.gmeet_link or venue
                     meet_link = None
                 else:
-                    if schedule.interview_mode:
-                        mode_val = schedule.interview_mode.capitalize()
+                    mode_val = schedule.interview_mode.capitalize() if schedule.interview_mode else "Online"
+                    venue = None
                     meet_link = schedule.gmeet_link
                 # Parse panel_ids from JSON string (e.g., "[1,2,3,4,5]")
                 if schedule.panel_id:
@@ -492,6 +497,12 @@ def get_admin_candidates():
                         schedule_panel_ids = json.loads(schedule.panel_id)
                     except (json.JSONDecodeError, TypeError):
                         schedule_panel_ids = []
+
+            if app_status not in ["Hired", "Rejected"]:
+                if schedule and schedule.interview_status in ["pending", "scheduled"]:
+                    app_status = "Scheduled"
+                elif schedule and schedule.interview_status == "completed":
+                    app_status = "Completed"
 
             # 3. Calculate profileComplete
             profile_pct = 60
@@ -556,7 +567,8 @@ def get_admin_candidates():
                     venue=venue,
                     appliedDate=applied_date_str,
                     roleId=job_id,
-                    rejectionReason=c.rejection_reason
+                    rejectionReason=c.rejection_reason,
+                    userId=c.user_id
                 )
             )
         return result
@@ -707,6 +719,18 @@ def update_candidate_status(candidate_id: int, data: UpdateCandidateStatusReques
             candidate.rejection_reason = data.rejection_reason
         db.add(candidate)
         
+        from app.services.history_service import record_candidate_history
+        details_str = f"Status updated to {data.status}"
+        if data.status == "Rejected" and data.rejection_reason:
+            details_str += f": {data.rejection_reason}"
+        record_candidate_history(
+            db=db,
+            candidate_id=candidate.id,
+            action=data.status,
+            interview_level=candidate.current_level or "Level 1",
+            details=details_str
+        )
+
         # Also update latest application status
         application = db.query(CandidateApplication).filter(
             CandidateApplication.candidate_id == candidate_id
@@ -715,6 +739,19 @@ def update_candidate_status(candidate_id: int, data: UpdateCandidateStatusReques
         if application:
             application.status = data.status
             db.add(application)
+
+        # Also sync active interview_schedule status
+        schedule = db.query(InterviewSchedule).filter(
+            InterviewSchedule.candidate_id == candidate_id,
+            InterviewSchedule.interview_status.in_(["pending", "scheduled"])
+        ).order_by(InterviewSchedule.created_at.desc()).first()
+        if schedule:
+            if data.status == "Rejected":
+                schedule.interview_status = "cancelled"
+                db.add(schedule)
+            elif data.status == "Completed":
+                schedule.interview_status = "completed"
+                db.add(schedule)
             
             try:
                 NotificationService.create_activity_and_notify(
@@ -836,6 +873,22 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
         if application:
             application.status = "Scheduled"
             db.add(application)
+
+        from app.services.history_service import record_candidate_history
+        record_candidate_history(
+            db=db,
+            candidate_id=candidate.id,
+            action="Assigned Panel",
+            interview_level=candidate.current_level or "Level 1",
+            details="Panel assigned and interview schedule activated"
+        )
+        record_candidate_history(
+            db=db,
+            candidate_id=candidate.id,
+            action="Scheduled",
+            interview_level=candidate.current_level or "Level 1",
+            details=f"Interview slot active for {schedule.date} {schedule.start_time.strftime('%I:%M %p') if schedule.start_time else ''}"
+        )
             
         # Create activity and notify candidate
         try:
@@ -1273,6 +1326,15 @@ def schedule_manual(candidate_id: int, data: ScheduleManualRequest):
         if application:
             application.status = "Selected"
             db.add(application)
+
+        from app.services.history_service import record_candidate_history
+        record_candidate_history(
+            db=db,
+            candidate_id=candidate.id,
+            action="Scheduled",
+            interview_level=data.interview_level or candidate.current_level or "Level 1",
+            details=f"Interview slot set for {data.date} {data.start_time}-{data.end_time} ({data.interview_mode})"
+        )
             
         db.commit()
         return {"status": "success", "message": "Interview slot scheduled successfully. Awaiting panel assignment."}
@@ -1346,6 +1408,8 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
             schedule.end_time = target_end_time
             schedule.interview_status = "pending"
             schedule.interview_mode = interview_mode.lower()
+            if job_id:
+                schedule.job_id = job_id
             if data.interview_level:
                 schedule.interview_level = data.interview_level
                 candidate.current_level = data.interview_level
@@ -1403,6 +1467,16 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
             candidate.status = "Scheduled"
             db.add(candidate)
             db.commit()
+
+        from app.services.history_service import record_candidate_history
+        record_candidate_history(
+            db=db,
+            candidate_id=candidate.id,
+            action="Rescheduled",
+            interview_level=data.interview_level or candidate.current_level or "Level 1",
+            details=f"Interview slot rescheduled for {data.date} {time_str}"
+        )
+        db.commit()
 
         try:
             if is_offline:
@@ -1661,7 +1735,8 @@ def get_admin_roles():
         roles = db.query(JobRole).order_by(JobRole.id.desc()).all()
         result = []
         for r in roles:
-            created_str = r.created_at.strftime("%Y-%m-%d") if r.created_at else datetime.utcnow().strftime("%Y-%m-%d")
+            from app.database import ist_now
+            created_str = r.created_at.strftime("%Y-%m-%d") if r.created_at else ist_now().strftime("%Y-%m-%d")
             result.append(
                 AdminJobRoleResponse(
                     id=str(r.id),
@@ -1824,6 +1899,7 @@ def get_busy_panels(date_str: str, start_time_str: str, end_time_str: str):
 class PanelListResponse(BaseModel):
     id: int
     name: str
+    email: Optional[str] = None
     user_id: Optional[int] = None
     interview_type: Optional[str] = None
     panel_group_id: Optional[int] = None
@@ -1837,16 +1913,20 @@ def get_db_panels():
         result = []
         for p in panels:
             name = p.hr_panelists_name
-            if not name and p.user_id:
+            email = None
+            if p.user_id:
                 user = db.query(User).filter(User.id == p.user_id).first()
                 if user:
-                    name = user.full_name
+                    if not name:
+                        name = user.full_name
+                    email = user.email
             if not name:
                 name = f"Panel {p.id}"
             result.append(
                 PanelListResponse(
                     id=p.id,
                     name=name,
+                    email=email,
                     user_id=p.user_id,
                     interview_type=p.interview_type,
                     panel_group_id=p.panel_group_id
@@ -1866,6 +1946,7 @@ class PanelGroupCreateRequest(BaseModel):
 class PanelMemberResponse(BaseModel):
     id: int
     name: str
+    email: Optional[str] = None
     user_id: Optional[int] = None
     interview_type: Optional[str] = None
 
@@ -1926,16 +2007,20 @@ def list_panel_groups():
             members = []
             for p in g.panels:
                 name = p.hr_panelists_name
-                if not name and p.user_id:
+                email = None
+                if p.user_id:
                     user = db.query(User).filter(User.id == p.user_id).first()
                     if user:
-                        name = user.full_name
+                        if not name:
+                            name = user.full_name
+                        email = user.email
                 if not name:
                     name = f"Panel {p.id}"
                 members.append(
                     PanelMemberResponse(
                         id=p.id,
                         name=name,
+                        email=email,
                         user_id=p.user_id,
                         interview_type=p.interview_type
                     )
@@ -2007,4 +2092,55 @@ def assign_panel_group(panel_id: int, data: AssignPanelGroupRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@router.get("/candidates/{candidate_id}/history")
+def get_candidate_history(candidate_id: int):
+    db = SessionLocal()
+    try:
+        from app.models.candidate_history import CandidateHistory
+        history = db.query(CandidateHistory).filter(
+            CandidateHistory.candidate_id == candidate_id
+        ).order_by(CandidateHistory.created_at.asc()).all()
+
+        res = []
+        for item in history:
+            res.append({
+                "id": item.id,
+                "candidate_id": item.candidate_id,
+                "action": item.action,
+                "interview_level": item.interview_level or "Level 1",
+                "details": item.details,
+                "created_at": item.created_at.isoformat() if item.created_at else None
+            })
+        return res
+    finally:
+        db.close()
+
+
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str
+
+
+@router.put("/users/{user_id}/reset-password")
+def admin_reset_password(user_id: int, data: AdminResetPasswordRequest):
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not data.new_password or len(data.new_password.strip()) < 4:
+            raise HTTPException(status_code=400, detail="Password must be at least 4 characters long")
+        user.password = data.new_password.strip()
+        db.add(user)
+        db.commit()
+        return {"status": "success", "message": f"Password updated successfully for {user.email}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
 

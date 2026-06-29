@@ -160,7 +160,8 @@ class NotificationService:
         ).first()
         if notification:
             notification.is_read = True
-            notification.read_at = datetime.utcnow()
+            from app.database import ist_now
+            notification.read_at = ist_now()
             db.commit()
             db.refresh(notification)
         return notification
@@ -168,12 +169,13 @@ class NotificationService:
     @staticmethod
     def mark_all_as_read(db: Session, user_id: int) -> int:
         """Mark all notifications as read for a user. Returns count of updated notifications."""
+        from app.database import ist_now
         result = db.query(Notification).filter(
             Notification.user_id == user_id,
             Notification.is_read == False
         ).update({
             Notification.is_read: True,
-            Notification.read_at: datetime.utcnow()
+            Notification.read_at: ist_now()
         })
         db.commit()
         return result

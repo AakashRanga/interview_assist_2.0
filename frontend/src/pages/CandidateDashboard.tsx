@@ -212,10 +212,25 @@ export function CandidateDashboard() {
   };
 
   const getTimelineSteps = () => {
-    const status = applicationStatus ? applicationStatus.charAt(0).toUpperCase() + applicationStatus.slice(1).toLowerCase() : '';
+    const statusNorm = applicationStatus ? applicationStatus.toLowerCase() : '';
+    const historyLogs = dashboardData?.history_logs || [];
+    
+    const formatTs = (tsStr?: string) => {
+      if (!tsStr) return '';
+      try {
+        return new Date(tsStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      } catch (e) {
+        return '';
+      }
+    };
+
+    const scheduledLog = [...historyLogs].reverse().find((h: any) => h.action === 'Scheduled' || h.action === 'Rescheduled');
+    const completedLog = [...historyLogs].reverse().find((h: any) => h.action === 'Completed');
+    const finalLog = [...historyLogs].reverse().find((h: any) => h.action === 'Hired' || h.action === 'Rejected');
+
     const scheduleDateStr = dashboardData?.interview_schedule?.date
       ? new Date(dashboardData.interview_schedule.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-      : '';
+      : formatTs(scheduledLog?.created_at);
 
     // Step 1: Application Submitted
     const step1 = {
@@ -230,10 +245,10 @@ export function CandidateDashboard() {
     // Step 2: Application Under Review
     let step2Status: 'completed' | 'active' | 'pending' = 'pending';
     let step2Date = 'Pending';
-    if (status === 'applied') {
+    if (statusNorm === 'applied') {
       step2Status = 'active';
       step2Date = 'In Progress';
-    } else if (status) {
+    } else if (statusNorm) {
       step2Status = 'completed';
       step2Date = 'Completed';
     }
@@ -247,15 +262,15 @@ export function CandidateDashboard() {
     // Step 3: Interview Scheduled
     let step3Status: 'completed' | 'active' | 'pending' = 'pending';
     let step3Date = 'Pending';
-    if (status === 'selected') {
+    if (statusNorm === 'selected') {
       step3Status = 'active';
       step3Date = 'In Progress';
-    } else if (status === 'scheduled') {
+    } else if (statusNorm === 'scheduled') {
       step3Status = 'completed';
       step3Date = scheduleDateStr || 'Scheduled';
-    } else if (status === 'completed' || status === 'hired' || status === 'rejected') {
+    } else if (statusNorm === 'completed' || statusNorm === 'hired' || statusNorm === 'rejected') {
       step3Status = 'completed';
-      step3Date = scheduleDateStr || 'Completed';
+      step3Date = scheduleDateStr || (formatTs(scheduledLog?.created_at) || 'Completed');
     }
     const step3 = {
       status: step3Status,
@@ -267,12 +282,12 @@ export function CandidateDashboard() {
     // Step 4: Interview Completed
     let step4Status: 'completed' | 'active' | 'pending' = 'pending';
     let step4Date = 'Pending';
-    if (status === 'scheduled') {
+    if (statusNorm === 'scheduled') {
       step4Status = 'active';
       step4Date = 'In Progress';
-    } else if (status === 'completed' || status === 'hired' || status === 'rejected') {
+    } else if (statusNorm === 'completed' || statusNorm === 'hired' || statusNorm === 'rejected') {
       step4Status = 'completed';
-      step4Date = 'Completed';
+      step4Date = formatTs(completedLog?.created_at) || 'Completed';
     }
     const step4 = {
       status: step4Status,
@@ -285,16 +300,16 @@ export function CandidateDashboard() {
     let step5Status: 'completed' | 'active' | 'pending' = 'pending';
     let step5Date = 'Pending';
     let step5Icon = ClockIcon;
-    if (status === 'completed') {
+    if (statusNorm === 'completed') {
       step5Status = 'active';
       step5Date = 'In Progress';
-    } else if (status === 'hired') {
+    } else if (statusNorm === 'hired') {
       step5Status = 'completed';
-      step5Date = 'Selected (Hired)';
+      step5Date = formatTs(finalLog?.created_at) ? `Selected (${formatTs(finalLog.created_at)})` : 'Selected (Hired)';
       step5Icon = CheckCircleIcon;
-    } else if (status === 'rejected') {
+    } else if (statusNorm === 'rejected') {
       step5Status = 'completed';
-      step5Date = 'Not Selected';
+      step5Date = formatTs(finalLog?.created_at) ? `Not Selected (${formatTs(finalLog.created_at)})` : 'Not Selected';
       step5Icon = XCircleIcon;
     }
     const step5 = {

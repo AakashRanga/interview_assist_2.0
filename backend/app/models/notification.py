@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, JSON, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from app.database import Base
+from app.database import Base, ist_now
 import enum
 
 
@@ -47,7 +47,7 @@ class CandidateActivity(Base):
     
     activity_metadata = Column(JSON, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=ist_now, nullable=False, index=True)
 
     candidate = relationship("Candidate", backref="activities")
     user = relationship("User", backref="candidate_activities")
@@ -75,7 +75,7 @@ class Notification(Base):
     priority = Column(SQLEnum(PriorityLevel), default=PriorityLevel.MEDIUM)
     redirect_url = Column(String(255), nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=ist_now, nullable=False, index=True)
 
     user = relationship("User", backref="notifications")
     candidate = relationship("Candidate", backref="candidate_notifications")

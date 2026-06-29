@@ -17,6 +17,7 @@ from app.models.interview_schedule import InterviewSchedule
 from app.models.user import User
 from app.models.panel import Panel
 from app.models.panel_group import PanelGroup
+from app.models.panel_feedback import PanelFeedback
 from app.services.notification_service import NotificationService
 from app.models.notification import ActivityType, NotificationType
 
@@ -187,7 +188,8 @@ async def upload_candidate_document(
             db.refresh(candidate)
 
         suffix = Path(file.filename).suffix
-        timestamp = int(datetime.utcnow().timestamp())
+        from app.database import ist_now
+        timestamp = int(ist_now().timestamp())
         save_name = f"{user_id}_{doc_type}_{timestamp}{suffix}"
         save_path = UPLOAD_DIR / save_name
         
@@ -634,17 +636,30 @@ def get_candidate_dashboard(user_id: int):
         # Sort by created_at to get latest
         sorted_applications = sorted(candidate.applications, key=lambda a: a.created_at, reverse=True)
         latest_app = sorted_applications[0] if sorted_applications else None
+        history_logs = []
+        if candidate:
+            from app.models.candidate_history import CandidateHistory
+            hist_records = db.query(CandidateHistory).filter(CandidateHistory.candidate_id == candidate.id).order_by(CandidateHistory.created_at.asc()).all()
+            for h in hist_records:
+                history_logs.append({
+                    "id": h.id,
+                    "action": h.action,
+                    "interview_level": h.interview_level,
+                    "details": h.details,
+                    "created_at": h.created_at.isoformat() if h.created_at else None
+                })
+
         interview_schedule = None
         if latest_app:
             interview = db.query(InterviewSchedule).filter(
                 InterviewSchedule.candidate_id == candidate.id,
-                InterviewSchedule.job_id == latest_app.role_id,
-                InterviewSchedule.interview_status == "scheduled"
-            ).first()
+                InterviewSchedule.interview_status != "cancelled"
+            ).order_by(InterviewSchedule.created_at.desc()).first()
             if interview:
                 # Get job details for venue and job_type
                 job_role = db.query(JobRole).filter(JobRole.id == latest_app.role_id).first()
                 is_offline_interview = interview.interview_mode and interview.interview_mode.lower() == "offline"
+                mode_str = interview.interview_mode.capitalize() if interview.interview_mode else ("Offline" if is_offline_interview else "Online")
                 interview_schedule = InterviewScheduleResponse(
                     id=interview.id,
                     candidate_id=interview.candidate_id,
@@ -654,8 +669,8 @@ def get_candidate_dashboard(user_id: int):
                     end_time=interview.end_time,
                     gmeet_link=None if is_offline_interview else interview.gmeet_link,
                     interview_status=interview.interview_status,
-                    job_type="Offline" if is_offline_interview else (job_role.job_type if job_role else "Online"),
-                    venue=interview.gmeet_link if is_offline_interview else (job_role.venue if job_role else None),
+                    job_type=mode_str,
+                    venue=interview.gmeet_link if is_offline_interview else None,
                 )
 
         # Manually construct the CandidateProfileResponse to avoid Pydantic
@@ -739,6 +754,7 @@ def get_candidate_dashboard(user_id: int):
             "applications": applications,
             "latest_application": latest_application_response,
             "interview_schedule": interview_schedule,
+            "history_logs": history_logs,
         }
     finally:
         db.close()
@@ -773,6 +789,8 @@ def apply_role(candidate_id: int, data: ApplyRoleRequest):
         candidate.status = "Applied"
         candidate.current_level = "Level 1"
         db.add(candidate)
+        from app.services.history_service import record_candidate_history
+        record_candidate_history(db, candidate.id, "Applied", interview_level="Level 1", details=f"Applied for role: {role.title}")
         db.commit()
         db.refresh(application)
 
@@ -847,6 +865,8 @@ def apply_role_by_user(user_id: int, data: ApplyRoleRequest):
         candidate.status = "Applied"
         candidate.current_level = "Level 1"
         db.add(candidate)
+        from app.services.history_service import record_candidate_history
+        record_candidate_history(db, candidate.id, "Applied", interview_level="Level 1", details=f"Applied for role: {role.title}")
         db.commit()
         db.refresh(application)
 
@@ -929,7 +949,8 @@ def get_panel_dashboard(user_id: int):
             
             role_title = "No Applied Role"
             app_status = c.status
-            applied_date_str = c.created_at.isoformat() if c.created_at else datetime.utcnow().isoformat()
+            from app.database import ist_now
+            applied_date_str = c.created_at.isoformat() if c.created_at else ist_now().isoformat()
             job_type = "Online"
             venue = None
             job_id = None
@@ -942,12 +963,14 @@ def get_panel_dashboard(user_id: int):
                 venue = application.role.venue if application.role else None
                 job_id = application.role_id
 
-            sched_query = db.query(InterviewSchedule).filter(
-                InterviewSchedule.candidate_id == c.id
-            )
-            if job_id:
-                sched_query = sched_query.filter(InterviewSchedule.job_id == job_id)
-            schedule = sched_query.order_by(InterviewSchedule.created_at.desc()).first()
+            schedule = db.query(InterviewSchedule).filter(
+                InterviewSchedule.candidate_id == c.id,
+                InterviewSchedule.interview_status != "cancelled"
+            ).order_by(InterviewSchedule.created_at.desc()).first()
+            if not schedule:
+                schedule = db.query(InterviewSchedule).filter(
+                    InterviewSchedule.candidate_id == c.id
+                ).order_by(InterviewSchedule.created_at.desc()).first()
 
             interview_date = None
             interview_time = None
@@ -968,9 +991,15 @@ def get_panel_dashboard(user_id: int):
                     venue = schedule.gmeet_link or venue
                     meet_link = None
                 else:
-                    if schedule.interview_mode:
-                        mode_val = schedule.interview_mode.capitalize()
+                    mode_val = schedule.interview_mode.capitalize() if schedule.interview_mode else "Online"
+                    venue = None
                     meet_link = schedule.gmeet_link
+
+            if app_status not in ["Hired", "Rejected"]:
+                if schedule and schedule.interview_status in ["pending", "scheduled"]:
+                    app_status = "Scheduled"
+                elif schedule and schedule.interview_status == "completed":
+                    app_status = "Completed"
 
             profile_pct = 60
             if c.phone:

@@ -34,7 +34,9 @@ import {
   MailIcon,
   ExternalLinkIcon,
   SlidersHorizontalIcon,
-  ClockIcon
+  ClockIcon,
+  KeyIcon,
+  ShieldCheckIcon
 } from 'lucide-react';
 
 const parseTime = (timePart: string): Date | null => {
@@ -151,6 +153,37 @@ export function AdminPanels() {
   const [newPanelistHRGrade, setNewPanelistHRGrade] = useState('');
   const [newPanelistHRMobile, setNewPanelistHRMobile] = useState('');
   const [creatingPanelist, setCreatingPanelist] = useState(false);
+  const [resetModal, setResetModal] = useState<{ isOpen: boolean; userId: number | null; userName: string; email?: string }>({ isOpen: false, userId: null, userName: '' });
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
+
+  const handleResetUserPassword = async (userId: number, newPass: string) => {
+    if (!newPass || newPass.trim().length < 4) {
+      toast.error('Password must be at least 4 characters long');
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/users/${userId}/reset-password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_password: newPass.trim() })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(data.message || 'Password updated successfully');
+        setResetModal({ isOpen: false, userId: null, userName: '' });
+        setResetPasswordValue('');
+      } else {
+        const errData = await res.json();
+        toast.error(errData.detail || 'Failed to reset password');
+      }
+    } catch (e) {
+      toast.error('Error resetting password');
+    } finally {
+      setResettingPassword(false);
+    }
+  };
 
   const handleCreatePanelist = async () => {
     if (!newPanelistName.trim() || !newPanelistEmail.trim() || !newPanelistPassword.trim()) {
@@ -1416,6 +1449,10 @@ export function AdminPanels() {
                                               
                                               <div className="border-t border-white/30 pt-3 space-y-2">
                                                 <div>
+                                                  <span className="text-[9px] uppercase tracking-wider text-secondary/40 block">Email Address</span>
+                                                  <span className="text-xs font-semibold text-secondary break-all">{p.email || 'N/A'}</span>
+                                                </div>
+                                                <div>
                                                   <span className="text-[9px] uppercase tracking-wider text-secondary/40 block">Specialization</span>
                                                   <span className="text-xs font-semibold text-secondary">{p.interview_type || 'General Interviewer'}</span>
                                                 </div>
@@ -1425,6 +1462,20 @@ export function AdminPanels() {
                                                     {assignedGroup ? assignedGroup.name : 'None (Unassigned)'}
                                                   </span>
                                                 </div>
+
+                                                {p.user_id && (
+                                                  <div className="pt-3 border-t border-white/20">
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      onClick={() => setResetModal({ isOpen: true, userId: p.user_id, userName: p.name, email: p.email })}
+                                                      className="w-full text-xs flex items-center justify-center gap-1.5 border-primary/40 text-primary hover:bg-primary/10 transition-all font-medium py-1.5"
+                                                    >
+                                                      <KeyIcon className="w-3.5 h-3.5" />
+                                                      Reset Password
+                                                    </Button>
+                                                  </div>
+                                                )}
                                               </div>
                                             </GlassCard>
                                           </div>
@@ -1770,6 +1821,54 @@ export function AdminPanels() {
                 setNewPanelistHRMobile('');
               }}
               disabled={creatingPanelist}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Reset Password Modal */}
+      <Modal
+        isOpen={resetModal.isOpen}
+        onClose={() => { setResetModal({ isOpen: false, userId: null, userName: '' }); setResetPasswordValue(''); }}
+        title={`Reset Password`}
+        size="sm"
+      >
+        <div className="space-y-4 py-1">
+          <div className="flex items-center space-x-3 bg-primary/10 p-3 rounded-xl border border-primary/20">
+            <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary flex-shrink-0">
+              <KeyIcon className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-secondary">{resetModal.userName}</h4>
+              <p className="text-[11px] text-secondary/70">{resetModal.email || 'User Account'}</p>
+            </div>
+          </div>
+
+          <Input
+            label="New Password *"
+            type="password"
+            placeholder="Enter new account password"
+            value={resetPasswordValue}
+            onChange={(e) => setResetPasswordValue(e.target.value)}
+            required
+          />
+
+          <div className="flex space-x-3 pt-2">
+            <Button
+              className="flex-grow flex items-center justify-center gap-1.5"
+              onClick={() => handleResetUserPassword(resetModal.userId!, resetPasswordValue)}
+              disabled={resettingPassword}
+            >
+              <ShieldCheckIcon className="w-4 h-4" />
+              {resettingPassword ? 'Updating...' : 'Save Password'}
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-grow"
+              onClick={() => { setResetModal({ isOpen: false, userId: null, userName: '' }); setResetPasswordValue(''); }}
+              disabled={resettingPassword}
             >
               Cancel
             </Button>

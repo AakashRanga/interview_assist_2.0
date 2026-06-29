@@ -117,9 +117,12 @@ def schedule_interview_task(self, schedule_id, candidate_id, is_reschedule=False
         # For offline interviews, skip n8n and don't generate gmeet link
         if is_offline:
             schedule.interview_status = "scheduled"
-            # Also update candidate_applications status to "Scheduled" if not Selected/Rejected
+            if candidate and candidate.status not in ["Selected", "Rejected"]:
+                candidate.status = "Scheduled"
+                db.add(candidate)
             if application and application.status not in ["Selected", "Rejected"]:
                 application.status = "Scheduled"
+                db.add(application)
             db.commit()
             # Do not return early, proceed to send emails!
 
@@ -277,14 +280,19 @@ def schedule_interview_task(self, schedule_id, candidate_id, is_reschedule=False
                     group.meet_link = meet_link
                     db.add(group)
 
-        # Also update candidate_applications status to "Scheduled" if not Selected/Rejected
+        # Also update candidate and candidate_applications status to "Scheduled" if not Selected/Rejected
         application = db.query(CandidateApplication).filter(
             CandidateApplication.candidate_id == candidate_id,
             CandidateApplication.role_id == schedule.job_id
         ).first()
 
+        if candidate and candidate.status not in ["Selected", "Rejected"]:
+            candidate.status = "Scheduled"
+            db.add(candidate)
+
         if application and application.status not in ["Selected", "Rejected"]:
             application.status = "Scheduled"
+            db.add(application)
 
         db.commit()
 

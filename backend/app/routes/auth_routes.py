@@ -64,6 +64,11 @@ def signup(data: UserSignUpRequest):
         )
         db.add(candidate)
         db.commit()
+        db.refresh(candidate)
+
+        from app.services.history_service import record_candidate_history
+        record_candidate_history(db, candidate.id, "New", details="Candidate profile created")
+        db.commit()
 
         return {
             "status": "success",

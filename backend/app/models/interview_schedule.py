@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Date, Time
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from app.database import Base
+from app.database import Base, ist_now
 
 
 class InterviewSchedule(Base):
@@ -19,7 +19,7 @@ class InterviewSchedule(Base):
     panel_id = Column(String(500), nullable=True, index=True)
     interview_mode = Column(String(50), nullable=False, default="online")
     interview_level = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=ist_now, nullable=False)
+    updated_at = Column(DateTime, default=ist_now, onupdate=ist_now, nullable=False)
 
     candidate = relationship("Candidate", back_populates="interview_schedules")

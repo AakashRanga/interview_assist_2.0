@@ -19,9 +19,15 @@ import {
   ThumbsDownIcon,
   PauseCircleIcon,
   MessageSquareIcon,
-  XCircleIcon } from
+  HistoryIcon,
+  XCircleIcon,
+  KeyIcon,
+  ShieldCheckIcon } from
 'lucide-react';
 import { Badge } from '../ui/Badge';
+import { Button } from '../ui/Button';
+import { Input } from '../ui/Input';
+import { Modal } from '../ui/Modal';
 import type { Candidate } from '../../data/mockData';
 import { type FeedbackDecision } from '../../data/feedbackStore';
 import { API_BASE_URL } from '../../config';
@@ -103,6 +109,38 @@ export function CandidateDetailModal({
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [showRejectionInput, setShowRejectionInput] = useState(false);
   const [rejectionReasonText, setRejectionReasonText] = useState('');
+  const [newPasswordText, setNewPasswordText] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+
+  const handleResetCandidatePassword = async () => {
+    if (!candidate || !candidate.userId) return;
+    if (!newPasswordText || newPasswordText.trim().length < 4) {
+      toast.error('Password must be at least 4 characters long');
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/users/${candidate.userId}/reset-password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_password: newPasswordText.trim() })
+      });
+      if (res.ok) {
+        toast.success(`Password updated successfully for ${candidate.name}`);
+        setNewPasswordText('');
+        setIsResetModalOpen(false);
+      } else {
+        const errData = await res.json();
+        toast.error(errData.detail || 'Failed to reset password');
+      }
+    } catch (e) {
+      toast.error('Error resetting password');
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+  const [historyLogs, setHistoryLogs] = useState<any[]>([]);
 
   useEffect(() => {
     if (!candidate) return;
@@ -110,6 +148,13 @@ export function CandidateDetailModal({
     const loadFeedbackData = async () => {
       setFeedbackLoading(true);
       try {
+        // Fetch audit history for candidate
+        const histRes = await fetch(`${API_BASE_URL}/admin/candidates/${candidate.id}/history`);
+        if (histRes.ok) {
+          const histData = await histRes.json();
+          setHistoryLogs(histData);
+        }
+
         if (viewerRole === 'panel') {
           const userStr = localStorage.getItem('user');
           if (userStr) {
@@ -137,7 +182,7 @@ export function CandidateDetailModal({
           }
         }
       } catch (err) {
-        console.error("Error loading feedback", err);
+        console.error("Error loading feedback/history", err);
       } finally {
         setFeedbackLoading(false);
       }
@@ -223,8 +268,8 @@ export function CandidateDetailModal({
   };
   return (
     <AnimatePresence>
-      {candidate &&
-      <>
+      {candidate && (
+        <React.Fragment key="candidate-modal">
           {/* Backdrop */}
           <motion.div
           initial={{
@@ -634,6 +679,76 @@ export function CandidateDetailModal({
                   </div>
               }
 
+                {/* Candidate Audit History & Round Timeline */}
+                <div className="border-t border-slate-200 pt-5">
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <HistoryIcon className="w-3.5 h-3.5 text-primary" />
+                      <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">
+                        Student Progress & Audit History
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500">
+                      {historyLogs.length} milestone{historyLogs.length === 1 ? '' : 's'} recorded
+                    </span>
+                  </div>
+
+                  {historyLogs.length === 0 ? (
+                    <div className="bg-slate-50 rounded-xl border border-dashed border-slate-300 p-4 text-center">
+                      <p className="text-xs text-slate-500">No milestone history logged yet for this candidate.</p>
+                    </div>
+                  ) : (
+                    <div className="relative pl-4 space-y-3 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                      {historyLogs.map((log) => {
+                        const isSelected = log.action === 'Selected' || log.action === 'Hired';
+                        const isRejected = log.action === 'Rejected';
+                        const isCompleted = log.action === 'Completed';
+                        const badgeStyle = isSelected
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : isRejected
+                          ? 'bg-rose-100 text-rose-800 border-rose-300'
+                          : isCompleted
+                          ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                          : 'bg-slate-100 text-slate-800 border-slate-300';
+
+                        const dotStyle = isSelected
+                          ? 'bg-emerald-500 ring-emerald-100'
+                          : isRejected
+                          ? 'bg-rose-500 ring-rose-100'
+                          : 'bg-primary ring-primary/20';
+
+                        return (
+                          <div key={log.id} className="relative flex items-start gap-3 text-xs">
+                            <div className={`absolute -left-[1.25rem] top-1 w-2.5 h-2.5 rounded-full ring-4 ${dotStyle}`} />
+                            <div className="flex-grow bg-slate-50 rounded-xl p-3 border border-slate-200 shadow-xs">
+                              <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-0.5 rounded-md font-semibold text-[10px] border ${badgeStyle}`}>
+                                    {log.action}
+                                  </span>
+                                  {log.interview_level && (
+                                    <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-md">
+                                      {log.interview_level}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  {log.created_at ? formatRelative(log.created_at) : ''}
+                                </span>
+                              </div>
+                              {log.details && (
+                                <p className="text-[11px] text-slate-600 font-normal leading-relaxed mt-1">
+                                  {log.details}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {/* Resume */}
                 <div>
                   <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide mb-2.5">
@@ -738,6 +853,78 @@ export function CandidateDetailModal({
                     </div>
                   </div>
                 </div>
+
+                {/* Admin Password Reset Inline Card (Placed at the very end of scrollable body content) */}
+                {viewerRole === 'admin' && candidate.userId && (
+                  <div className="bg-gradient-to-r from-slate-50 to-indigo-50/50 rounded-xl p-4 border border-indigo-100 shadow-xs transition-all duration-300">
+                    {!isResetModalOpen ? (
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-[11px] font-bold text-indigo-900 uppercase tracking-wide flex items-center gap-1.5">
+                            <KeyIcon className="w-3.5 h-3.5 text-indigo-600" />
+                            Account Access & Security
+                          </div>
+                          <div className="text-xs text-slate-500 mt-0.5">
+                            Admin override for candidate login password
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setIsResetModalOpen(true)}
+                          className="h-8 text-xs flex items-center gap-1.5 border-indigo-200 text-indigo-600 hover:bg-indigo-100 font-semibold shadow-2xs"
+                        >
+                          <KeyIcon className="w-3.5 h-3.5" />
+                          Reset Password
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[11px] font-bold text-indigo-900 uppercase tracking-wide flex items-center gap-1.5">
+                            <ShieldCheckIcon className="w-3.5 h-3.5 text-indigo-600" />
+                            Reset Password for {candidate.name}
+                          </div>
+                          <button
+                            onClick={() => { setIsResetModalOpen(false); setNewPasswordText(''); }}
+                            className="text-slate-400 hover:text-slate-600 text-xs p-1 font-bold"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div className="flex flex-col sm:flex-row items-center gap-2">
+                          <Input
+                            type="password"
+                            placeholder="Enter new candidate password (min 4 chars)..."
+                            value={newPasswordText}
+                            onChange={(e) => setNewPasswordText(e.target.value)}
+                            className="text-xs h-9 bg-white flex-grow w-full"
+                          />
+                          <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <Button
+                              size="sm"
+                              onClick={handleResetCandidatePassword}
+                              disabled={resettingPassword}
+                              className="h-9 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex-grow sm:flex-grow-0 flex items-center justify-center gap-1 px-4"
+                            >
+                              <ShieldCheckIcon className="w-3.5 h-3.5" />
+                              {resettingPassword ? 'Saving...' : 'Save Password'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => { setIsResetModalOpen(false); setNewPasswordText(''); }}
+                              disabled={resettingPassword}
+                              className="h-9 text-xs flex-grow sm:flex-grow-0"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Footer actions */}
@@ -817,8 +1004,8 @@ export function CandidateDetailModal({
               </div>
             </div>
           </motion.div>
-        </>
-      }
-    </AnimatePresence>);
-
+        </React.Fragment>
+      )}
+    </AnimatePresence>
+  );
 }

@@ -15,6 +15,7 @@ from app.database import engine, Base
 from app.models.panel_group import PanelGroup
 from app.models.panel_feedback import PanelFeedback
 from app.models.email_log import EmailLog
+from app.models.candidate_history import CandidateHistory
 
 Base.metadata.create_all(bind=engine)
 
@@ -187,6 +188,59 @@ with engine.begin() as connection:
                     "ALTER TABLE interview_schedule ADD COLUMN interview_level VARCHAR(100) NULL"
                 )
             )
+
+        # email_logs table columns check
+        result_emails = connection.execute(
+            text(
+                "SELECT COLUMN_NAME FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = 'email_logs'"
+            ),
+            {"schema": db_name}
+        )
+        existing_email_columns = {row[0] for row in result_emails}
+        if existing_email_columns:
+            if "recipient" not in existing_email_columns:
+                connection.execute(text("ALTER TABLE email_logs ADD COLUMN recipient VARCHAR(255) NOT NULL DEFAULT ''"))
+            if "to_email" in existing_email_columns:
+                try:
+                    connection.execute(text("ALTER TABLE email_logs MODIFY COLUMN to_email VARCHAR(255) NULL"))
+                except Exception:
+                    pass
+            else:
+                connection.execute(text("ALTER TABLE email_logs ADD COLUMN to_email VARCHAR(255) NULL"))
+            if "subject" not in existing_email_columns:
+                connection.execute(text("ALTER TABLE email_logs ADD COLUMN subject VARCHAR(255) NOT NULL DEFAULT ''"))
+            if "body" not in existing_email_columns:
+                connection.execute(text("ALTER TABLE email_logs ADD COLUMN body TEXT NULL"))
+            if "status" not in existing_email_columns:
+                connection.execute(text("ALTER TABLE email_logs ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'pending'"))
+            if "error_message" not in existing_email_columns:
+                connection.execute(text("ALTER TABLE email_logs ADD COLUMN error_message TEXT NULL"))
+            if "created_at" not in existing_email_columns:
+                connection.execute(text("ALTER TABLE email_logs ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"))
+            if "updated_at" not in existing_email_columns:
+                connection.execute(text("ALTER TABLE email_logs ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"))
+
+        # candidate_history table columns check
+        result_hist = connection.execute(
+            text(
+                "SELECT COLUMN_NAME FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = 'candidate_history'"
+            ),
+            {"schema": db_name}
+        )
+        existing_hist_columns = {row[0] for row in result_hist}
+        if existing_hist_columns:
+            if "candidate_id" not in existing_hist_columns:
+                connection.execute(text("ALTER TABLE candidate_history ADD COLUMN candidate_id INT NOT NULL"))
+            if "action" not in existing_hist_columns:
+                connection.execute(text("ALTER TABLE candidate_history ADD COLUMN action VARCHAR(100) NOT NULL DEFAULT ''"))
+            if "interview_level" not in existing_hist_columns:
+                connection.execute(text("ALTER TABLE candidate_history ADD COLUMN interview_level VARCHAR(100) NULL"))
+            if "details" not in existing_hist_columns:
+                connection.execute(text("ALTER TABLE candidate_history ADD COLUMN details TEXT NULL"))
+            if "created_at" not in existing_hist_columns:
+                connection.execute(text("ALTER TABLE candidate_history ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"))
 
 app = FastAPI(title="AI Recruitment System")
 

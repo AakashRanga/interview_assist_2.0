@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from app.database import Base
+from app.database import Base, ist_now
 
 
 class Panel(Base):
@@ -21,7 +21,7 @@ class Panel(Base):
     team_link = Column(String(500), nullable=True)
     interview_type = Column(String(100), nullable=True)
     panel_briefing = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=ist_now, nullable=False)
 
     user = relationship("User")
     panel_group = relationship("PanelGroup", back_populates="panels")

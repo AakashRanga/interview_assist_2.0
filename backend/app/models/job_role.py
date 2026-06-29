@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from datetime import datetime
-from app.database import Base
+from app.database import Base, ist_now
 
 
 class JobRole(Base):
@@ -15,5 +15,5 @@ class JobRole(Base):
     venue = Column(String(255), nullable=True)
     level = Column(String(50), nullable=True)
     description = Column(String(1000), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=ist_now, nullable=False)
     is_visible = Column(Boolean, default=True, nullable=False)

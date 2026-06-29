@@ -54,41 +54,52 @@ def submit_feedback(data: FeedbackSubmitRequest):
                 detail="You can only submit feedback for candidates directly assigned to you."
             )
 
-        # 4. Find the active schedule and mark it completed
+        # 4. Find active schedule (or latest schedule) to determine evaluated round level
         schedule = db.query(InterviewSchedule).filter(
             InterviewSchedule.candidate_id == candidate.id,
             InterviewSchedule.interview_status.in_(["pending", "scheduled"])
         ).order_by(InterviewSchedule.created_at.desc()).first()
-        if schedule:
+        if not schedule:
+            schedule = db.query(InterviewSchedule).filter(
+                InterviewSchedule.candidate_id == candidate.id
+            ).order_by(InterviewSchedule.created_at.desc()).first()
+
+        eval_level = (schedule.interview_level if schedule and schedule.interview_level else None) or candidate.current_level or "Level 1"
+
+        if schedule and schedule.interview_status in ["pending", "scheduled"]:
             schedule.interview_status = "completed"
             db.add(schedule)
 
-        # 5. Auto-advance candidate's current_level to next round if decision is "Selected"
-        if data.decision == "Selected":
-            application = db.query(CandidateApplication).filter(
-                CandidateApplication.candidate_id == candidate.id
-            ).order_by(CandidateApplication.created_at.desc()).first()
-            if application and application.role:
-                from app.routes.admin_routes import parse_role_levels
-                role_levels = parse_role_levels(application.role.level)
-                curr = candidate.current_level or "Level 1"
-                if curr in role_levels:
-                    idx = role_levels.index(curr)
-                    if idx + 1 < len(role_levels):
-                        candidate.current_level = role_levels[idx + 1]
-                        db.add(candidate)
-
-        # 6. Check if feedback already exists for this candidate by this panel member
+        # 5. Check if feedback already exists for this candidate by this panel member
         existing = db.query(PanelFeedback).filter(
             PanelFeedback.candidate_id == candidate.id,
             PanelFeedback.panel_id == panel.id
         ).first()
+
+        from app.services.history_service import record_candidate_history
+        panel_name = panel.hr_panelists_name or f"Panel {panel.id}"
+
+        # Update candidate and application status to Completed when feedback is submitted/updated
+        if candidate.status not in ["Hired", "Rejected"]:
+            candidate.status = "Completed"
+            db.add(candidate)
+        
+        application = db.query(CandidateApplication).filter(
+            CandidateApplication.candidate_id == candidate.id
+        ).order_by(CandidateApplication.created_at.desc()).first()
+        if application and application.status not in ["Hired", "Rejected"]:
+            application.status = "Completed"
+            db.add(application)
 
         if existing:
             existing.feedback_text = data.feedback_text
             existing.rating = data.rating
             existing.decision = data.decision
             db.add(existing)
+            record_candidate_history(
+                db, candidate.id, "Completed", interview_level=eval_level,
+                details=f"Feedback updated by {panel_name}: {data.decision} - {data.feedback_text[:100]}"
+            )
             db.commit()
             db.refresh(existing)
             msg = "Feedback updated successfully"
@@ -102,17 +113,22 @@ def submit_feedback(data: FeedbackSubmitRequest):
                 decision=data.decision
             )
             db.add(new_fb)
-            
-            # Update candidate status to Completed when feedback is submitted
-            candidate.status = "Completed"
-            db.add(candidate)
-            
-            application = db.query(CandidateApplication).filter(
-                CandidateApplication.candidate_id == candidate.id
-            ).order_by(CandidateApplication.created_at.desc()).first()
-            if application:
-                application.status = "Completed"
-                db.add(application)
+
+            # Auto-advance candidate's current_level to next round if decision is "Selected"
+            if data.decision == "Selected":
+                if application and application.role:
+                    from app.routes.admin_routes import parse_role_levels
+                    role_levels = parse_role_levels(application.role.level)
+                    if eval_level in role_levels:
+                        idx = role_levels.index(eval_level)
+                        if idx + 1 < len(role_levels):
+                            candidate.current_level = role_levels[idx + 1]
+                            db.add(candidate)
+
+            record_candidate_history(
+                db, candidate.id, "Completed", interview_level=eval_level,
+                details=f"Evaluated by {panel_name}: Decision - {data.decision}. {data.feedback_text[:100]}"
+            )
 
             db.commit()
             db.refresh(new_fb)
