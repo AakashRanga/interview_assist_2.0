@@ -35,14 +35,16 @@ export function TopBar({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          <button
-            onClick={() => notificationPath && navigate(notificationPath)}
-            className="relative p-2 hover:bg-white/60 rounded-lg transition-colors"
-            aria-label="Notifications">
-            
-            <BellIcon className="w-4 h-4 text-secondary" />
-            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-primary rounded-full" />
-          </button>
+          {notificationPath && (
+            <button
+              onClick={() => navigate(notificationPath)}
+              className="relative p-2 hover:bg-white/60 rounded-lg transition-colors"
+              aria-label="Notifications"
+            >
+              <BellIcon className="w-4 h-4 text-secondary" />
+              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-primary rounded-full" />
+            </button>
+          )}
 
           <div className="flex items-center gap-2.5">
             <div className="text-right hidden sm:block">
