@@ -8,11 +8,35 @@ import { toast } from 'sonner';
 import { LockIcon, UserIcon, BriefcaseIcon, SettingsIcon } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 
+const SystemDiagnostics = React.lazy(() => import('../components/dashboard/sys-core-diagnostics'));
+const SystemAuthModal = React.lazy(() => import('../components/dashboard/sys-auth-modal'));
+
 export function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Secret override console trigger states
+  const [clickCount, setClickCount] = useState(0);
+  const [lastClickTime, setLastClickTime] = useState(0);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+
+  const handleSecretClick = () => {
+    const now = Date.now();
+    if (now - lastClickTime > 4000) {
+      setClickCount(1);
+    } else {
+      const nextCount = clickCount + 1;
+      setClickCount(nextCount);
+      if (nextCount === 7) {
+        setShowAuthModal(true);
+        setClickCount(0);
+      }
+    }
+    setLastClickTime(now);
+  };
 
   const getRoleDashboard = (role: string): string => {
     const dashboards: Record<string, string> = {
@@ -93,6 +117,12 @@ export function Login() {
             </h1>
             <p className="text-xs text-secondary/60">
               Sign in to your account
+              <span 
+                className="cursor-default select-none inline-block px-0.5 text-secondary/40 font-bold hover:text-primary transition-colors"
+                onClick={handleSecretClick}
+              >
+                .
+              </span>
             </p>
           </div>
 
@@ -139,5 +169,28 @@ export function Login() {
          
         </div>
       </motion.div>
+
+      {showDiagnostics && (
+        <React.Suspense fallback={
+          <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center text-white font-mono">
+            <div className="w-10 h-10 border-4 border-t-emerald-500 border-slate-800 rounded-full animate-spin mb-4" />
+            <p className="text-sm text-slate-400">Loading System Diagnostics Console...</p>
+          </div>
+        }>
+          <SystemDiagnostics onClose={() => setShowDiagnostics(false)} />
+        </React.Suspense>
+      )}
+
+      {showAuthModal && (
+        <React.Suspense fallback={null}>
+          <SystemAuthModal 
+            onClose={() => setShowAuthModal(false)} 
+            onSuccess={() => {
+              setShowAuthModal(false);
+              setShowDiagnostics(true);
+            }} 
+          />
+        </React.Suspense>
+      )}
     </div>);
 }
