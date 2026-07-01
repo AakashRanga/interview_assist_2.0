@@ -72,7 +72,6 @@ class ApplicationResponse(BaseModel):
     id: int
     role_id: int
     role_title: str
-    preferred_location: Optional[str]
     cover_letter: Optional[str]
     status: str
     created_at: datetime
@@ -127,7 +126,6 @@ class CandidateProfileResponse(BaseModel):
 
 class ApplyRoleRequest(BaseModel):
     role_id: int
-    preferred_location: Optional[str] = None
     cover_letter: Optional[str] = None
 
 
@@ -307,7 +305,6 @@ def get_candidate_profile(candidate_id: int):
                 id=app.id,
                 role_id=app.role_id,
                 role_title=app.role.title if app.role else "",
-                preferred_location=app.preferred_location,
                 cover_letter=app.cover_letter,
                 status=app.status,
                 created_at=app.created_at
@@ -400,7 +397,6 @@ def get_candidate_profile_by_user(user_id: int):
                 id=app.id,
                 role_id=app.role_id,
                 role_title=app.role.title if app.role else "",
-                preferred_location=app.preferred_location,
                 cover_letter=app.cover_letter,
                 status=app.status,
                 created_at=app.created_at
@@ -625,7 +621,6 @@ def get_candidate_dashboard(user_id: int):
                 id=app.id,
                 role_id=app.role_id,
                 role_title=role.title if role else "",
-                preferred_location=app.preferred_location,
                 cover_letter=app.cover_letter,
                 status=app.status,
                 created_at=app.created_at,
@@ -741,7 +736,6 @@ def get_candidate_dashboard(user_id: int):
                 id=latest_app.id,
                 role_id=latest_app.role_id,
                 role_title=role.title if role else "",
-                preferred_location=latest_app.preferred_location,
                 cover_letter=latest_app.cover_letter,
                 status=latest_app.status,
                 created_at=latest_app.created_at,
@@ -781,7 +775,6 @@ def apply_role(candidate_id: int, data: ApplyRoleRequest):
         application = CandidateApplication(
             candidate_id=candidate_id,
             role_id=data.role_id,
-            preferred_location=data.preferred_location,
             cover_letter=data.cover_letter,
             status="Applied"
         )
@@ -821,7 +814,6 @@ def apply_role(candidate_id: int, data: ApplyRoleRequest):
                 "candidate_id": candidate.id,
                 "role_id": role.id,
                 "role_title": role.title,
-                "preferred_location": application.preferred_location,
                 "cover_letter": application.cover_letter,
                 "status": application.status,
                 "created_at": application.created_at
@@ -857,7 +849,6 @@ def apply_role_by_user(user_id: int, data: ApplyRoleRequest):
         application = CandidateApplication(
             candidate_id=candidate.id,
             role_id=data.role_id,
-            preferred_location=data.preferred_location,
             cover_letter=data.cover_letter,
             status="Applied"
         )
@@ -897,7 +888,6 @@ def apply_role_by_user(user_id: int, data: ApplyRoleRequest):
                 "candidate_id": candidate.id,
                 "role_id": role.id,
                 "role_title": role.title,
-                "preferred_location": application.preferred_location,
                 "cover_letter": application.cover_letter,
                 "status": application.status,
                 "created_at": application.created_at
@@ -1065,23 +1055,23 @@ def get_panel_dashboard(user_id: int):
                 members.append({
                     "id": str(member.id),
                     "name": name,
-                    "role": member.interview_type or "Panelist",
-                    "meetLink": member.team_link or ""
+                    "role": member.hr_panelist_grade or "Panelist",
+                    "meetLink": ""
                 })
         else:
             members.append({
                 "id": str(panel.id),
                 "name": user.full_name,
-                "role": panel.interview_type or "Panelist",
-                "meetLink": panel.team_link or ""
+                "role": panel.hr_panelist_grade or "Panelist",
+                "meetLink": ""
             })
 
         panel_response = {
             "id": str(panel.id),
             "name": group.name if group else (user.full_name),
-            "description": group.description if group else (panel.mr_panelist_grade or "Interview Panel"),
-            "meetLink": group.meet_link if group else (panel.team_link or ""),
-            "type": panel.interview_type or "HR/Technical",
+            "description": group.description if group else (panel.hr_panelist_grade or "Interview Panel"),
+            "meetLink": group.meet_link if group else "",
+            "type": panel.hr_panelist_grade or "HR/Technical",
             "members": members
         }
 

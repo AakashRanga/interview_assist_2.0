@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -55,6 +55,13 @@ export function AdminCandidates() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [groupFilter, setGroupFilter] = useState<string>('all');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [modeFilter, setModeFilter] = useState<string>('all');
+
+  const roles = useMemo(() => {
+    const list = new Set(candidates.map((c) => c.role).filter(Boolean));
+    return ['all', ...Array.from(list)];
+  }, [candidates]);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [menuCoords, setMenuCoords] = useState<{ top: number; left: number; openUpward: boolean } | null>(null);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
@@ -407,7 +414,7 @@ export function AdminCandidates() {
 
 
 
-  const handleApproveReject = async (status: 'Selected' | 'Rejected', candidateId: string, rejectionReason?: string) => {
+  const handleApproveReject = async (status: 'Selected' | 'Rejected' | 'Hired', candidateId: string, rejectionReason?: string) => {
     try {
       const res = await fetch(`${API_BASE_URL}/admin/candidates/${candidateId}/status`, {
         method: 'PUT',
@@ -444,6 +451,11 @@ export function AdminCandidates() {
       return false;
     if (statusFilter !== 'all' && c.status !== statusFilter) return false;
     if (groupFilter !== 'all' && c.panelGroupId !== groupFilter) return false;
+    if (roleFilter !== 'all' && c.role !== roleFilter) return false;
+    if (modeFilter !== 'all') {
+      const mode = c.mode || 'Online';
+      if (mode.toLowerCase() !== modeFilter.toLowerCase()) return false;
+    }
     return true;
   });
 
@@ -457,6 +469,8 @@ export function AdminCandidates() {
     if (search) params.append('search', search);
     if (statusFilter !== 'all') params.append('status', statusFilter);
     if (groupFilter !== 'all') params.append('panelGroupId', groupFilter);
+    if (roleFilter !== 'all') params.append('role', roleFilter);
+    if (modeFilter !== 'all') params.append('mode', modeFilter);
 
     const toastId = toast.loading('Preparing Excel download...');
 
@@ -641,7 +655,7 @@ export function AdminCandidates() {
                 className="w-full pl-9 pr-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary placeholder:text-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/50" />
 
             </div>
-            <select
+             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50">
@@ -663,6 +677,25 @@ export function AdminCandidates() {
                   {g.name}
                 </option>
               )}
+            </select>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="px-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50">
+              <option value="all">All Roles</option>
+              {roles.filter(r => r !== 'all').map((r) =>
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              )}
+            </select>
+            <select
+              value={modeFilter}
+              onChange={(e) => setModeFilter(e.target.value)}
+              className="px-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50">
+              <option value="all">All Modes</option>
+              <option value="Online">Online</option>
+              <option value="Offline">Offline</option>
             </select>
             <Button
               variant="outline"
@@ -816,12 +849,28 @@ export function AdminCandidates() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="text-xs text-secondary">
-                            {c.interviewDate ? new Date(c.interviewDate).toLocaleDateString() : 'Not scheduled'}
-                          </div>
-                          <div className="text-[10px] text-secondary/60">
-                            {c.interviewTime || '—'}
-                          </div>
+                          {c.interviewDate ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center">
+                                <span className="text-xs text-secondary font-medium">
+                                  {new Date(c.interviewDate).toLocaleDateString()}
+                                </span>
+                                 <span className="ml-1.5 text-[10px]">
+                                  <Badge
+                                    variant={c.mode === 'Offline' ? 'warning' : 'success'}
+                                    size="sm"
+                                  >
+                                    {c.mode || 'Online'}
+                                  </Badge>
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-secondary/60">
+                                {c.interviewTime || '—'}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-secondary/50">Not scheduled</span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <Badge
@@ -1081,7 +1130,7 @@ export function AdminCandidates() {
                           {p.name}
                         </span>
                         <span className="text-[10px] text-secondary/60">
-                          ID: {p.id} • {p.interview_type || 'General'}
+                          ID: {p.id} • {p.hr_panelist_grade || 'General'}
                         </span>
                       </div>
                       <Badge
@@ -1240,7 +1289,7 @@ export function AdminCandidates() {
           }}
           className="candidate-menu-container w-44 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
         >
-          {selectedCandidate.status !== 'Selected' && selectedCandidate.status !== 'Rejected' && !selectedCandidate.panelId && (
+          {['New', 'Applied'].includes(selectedCandidate.status) && (
             <>
               <button
                 onClick={() => {
@@ -1262,32 +1311,28 @@ export function AdminCandidates() {
               </button>
             </>
           )}
-          {selectedCandidate.status === 'Selected' && (
-            <button
-              onClick={() => handleAction('schedule', selectedCandidate)}
-              className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100 font-semibold text-primary">
-              Schedule Date & Time
-            </button>
-          )}
-          {selectedCandidate.status === 'Selected' && selectedCandidate.interviewDate && (
-            <button
-              onClick={() => handleAction('reassign', selectedCandidate)}
-              className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
-              Assign Panel
-            </button>
-          )}
-          {selectedCandidate.status !== 'Selected' && (
+          {['Selected', 'Scheduled', 'Completed'].includes(selectedCandidate.status) && (
             <>
-              <button
-                onClick={() => handleAction('reschedule', selectedCandidate)}
-                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
-                Reschedule
-              </button>
-              <button
-                onClick={() => handleAction('reassign', selectedCandidate)}
-                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
-                Reassign Panel
-              </button>
+              {!selectedCandidate.interviewDate ? (
+                <button
+                  onClick={() => handleAction('schedule', selectedCandidate)}
+                  className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100 font-semibold text-primary">
+                  Schedule Date & Time
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleAction('reschedule', selectedCandidate)}
+                  className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
+                  Reschedule
+                </button>
+              )}
+              {selectedCandidate.interviewDate && (
+                <button
+                  onClick={() => handleAction('reassign', selectedCandidate)}
+                  className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium border-b border-slate-100">
+                  {selectedCandidate.panelId ? 'Reassign Panel' : 'Assign Panel'}
+                </button>
+              )}
             </>
           )}
           <button

@@ -412,7 +412,6 @@ export function CandidateProfile() {
         },
         body: JSON.stringify({
           role_id: selectedRole.id,
-          preferred_location: preferences.location || null,
           cover_letter: `Applying for ${selectedRole.title}`
         })
       });
@@ -435,27 +434,6 @@ export function CandidateProfile() {
     }
   };
 
-  const indiaLocationOptions = [
-    'Bengaluru, Karnataka',
-    'Hyderabad, Telangana',
-    'Chennai, Tamil Nadu',
-    'Mumbai, Maharashtra',
-    'Pune, Maharashtra',
-    'Delhi NCR',
-    'Gurugram, Haryana',
-    'Noida, Uttar Pradesh',
-    'Kolkata, West Bengal',
-    'Ahmedabad, Gujarat',
-    'Kochi, Kerala',
-    'Thiruvananthapuram, Kerala',
-    'Coimbatore, Tamil Nadu',
-    'Jaipur, Rajasthan',
-    'Indore, Madhya Pradesh',
-    'Bhubaneswar, Odisha',
-    'Chandigarh',
-    'Visakhapatnam, Andhra Pradesh',
-    'Remote (India)'
-  ];
 
   const addSkill = () => {
     if (skillInput.trim() && !skills.includes(skillInput.trim())) {
@@ -1362,51 +1340,27 @@ export function CandidateProfile() {
                     {jobRoles.length} open roles
                   </Badge>
                 </div>
-                <div className="grid md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-xs font-medium text-secondary/70 mb-2 uppercase tracking-wide">
-                      Open Role
-                    </label>
-                    <select
-                      value={preferences.role}
-                      onChange={(e) =>
-                      setPreferences({
-                        ...preferences,
-                        role: e.target.value
-                      })
-                      }
-                      className="w-full px-4 py-3 bg-white/70 backdrop-blur-xl border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer">
-                      
-                      <option value="">Select a role to apply</option>
-                      {jobRoles.map((r) =>
-                      <option key={r.id} value={r.id}>
-                          {r.title} — {r.location} — {r.level ? `${r.level} — ` : ''}{r.job_type || r.jobType || 'Online'}
-                        </option>
-                      )}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-secondary/70 mb-2 uppercase tracking-wide">
-                      Preferred Location (India)
-                    </label>
-                    <select
-                      value={preferences.location}
-                      onChange={(e) =>
-                      setPreferences({
-                        ...preferences,
-                        location: e.target.value
-                      })
-                      }
-                      className="w-full px-4 py-3 bg-white/70 backdrop-blur-xl border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer">
-                      
-                      <option value="">Select a city</option>
-                      {indiaLocationOptions.map((c) =>
-                      <option key={c} value={c}>
-                          {c}
-                        </option>
-                      )}
-                    </select>
-                  </div>
+                <div className="mb-4">
+                  <label className="block text-xs font-medium text-secondary/70 mb-2 uppercase tracking-wide">
+                    Open Role
+                  </label>
+                  <select
+                    value={preferences.role}
+                    onChange={(e) =>
+                    setPreferences({
+                      ...preferences,
+                      role: e.target.value
+                    })
+                    }
+                    className="w-full px-4 py-3 bg-white/70 backdrop-blur-xl border border-white/60 rounded-2xl text-sm text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer">
+                    
+                    <option value="">Select a role to apply</option>
+                    {jobRoles.map((r) =>
+                    <option key={r.id} value={r.id}>
+                        {r.title} — {r.location} — {r.level ? `${r.level} — ` : ''}{r.job_type || r.jobType || 'Online'}
+                      </option>
+                    )}
+                  </select>
                 </div>
                 {selectedRole &&
                 <motion.div

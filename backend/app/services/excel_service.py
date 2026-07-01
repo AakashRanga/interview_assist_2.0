@@ -15,14 +15,8 @@ class ExcelService:
         A: full_name (required)
         B: email (required)
         C: password (required)
-        D: role (optional, default: 'panel')
-        E: hr_panelists_name
-        F: hr_panelist_grade
-        G: hr_panel_mobile
-        H: tag_coordinator
-        I: slots
-        J: team_link
-        K: interview_type
+        D: hr_panelist_grade
+        E: hr_panel_mobile
         
         Returns:
             BytesIO: Excel file as bytes
@@ -48,14 +42,8 @@ class ExcelService:
             "full_name*",
             "email*",
             "password*",
-            "role",
-            "hr_panelists_name",
             "hr_panelist_grade",
-            "hr_panel_mobile",
-            "tag_coordinator",
-            "slots",
-            "team_link",
-            "interview_type"
+            "hr_panel_mobile"
         ]
         
         for col_idx, header in enumerate(headers, start=1):
@@ -72,40 +60,22 @@ class ExcelService:
                 "Rajesh Kumar",
                 "rajesh.kumar@example.com",
                 "Password123!",
-                "panel",
-                "Rajesh Kumar",
                 "Senior Manager",
-                "+91-9876543210",
-                "Coordinator A",
-                "5-10",
-                "https://teams.microsoft.com/l/meetup-join/...",
-                "Technical Round"
+                "+91-9876543210"
             ],
             [
                 "Priya Singh",
                 "priya.singh@example.com",
                 "SecurePass456#",
-                "panel",
-                "Priya Singh",
                 "Manager",
-                "+91-9876543211",
-                "Coordinator B",
-                "10-15",
-                "https://teams.microsoft.com/l/meetup-join/...",
-                "HR Round"
+                "+91-9876543211"
             ],
             [
                 "Amit Patel",
                 "amit.patel@example.com",
                 "MyPassword789$",
-                "panel",
-                "Amit Patel",
                 "Lead",
-                "+91-9876543212",
-                "Coordinator C",
-                "15-20",
-                "https://teams.microsoft.com/l/meetup-join/...",
-                "Final Round"
+                "+91-9876543212"
             ]
         ]
 
@@ -114,7 +84,7 @@ class ExcelService:
                 cell = worksheet.cell(row=row_idx, column=col_idx)
                 cell.value = value
                 cell.border = border
-                if col_idx in [2, 7, 10]:  # Email, mobile, team_link - left aligned
+                if col_idx in [2, 5]:  # Email, mobile - left aligned
                     cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
                 else:
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -130,14 +100,8 @@ class ExcelService:
             ["3. password", "Initial password (will be used for login)"],
             ["", ""],
             ["OPTIONAL FIELDS:", ""],
-            ["4. role", "Default: 'panel'. Can be: panel, hr, technical"],
-            ["5. hr_panelists_name", "Panelist name for HR round"],
-            ["6. hr_panelist_grade", "Grade/Level of the panelist"],
-            ["7. hr_panel_mobile", "Contact number of HR panelist"],
-            ["8. tag_coordinator", "Coordinator assigned to this panel"],
-            ["9. slots", "Available interview slots (e.g., 5-10, 10-15)"],
-            ["10. team_link", "Microsoft Teams or meeting link"],
-            ["11. interview_type", "Type of interview (Technical, HR, Final Round, etc.)"],
+            ["4. hr_panelist_grade", "Designation / Specialization of the panelist"],
+            ["5. hr_panel_mobile", "Contact number of panelist"],
             ["", ""],
             ["IMPORTANT NOTES:", ""],
             ["- Do not modify the header row", ""],
@@ -163,7 +127,7 @@ class ExcelService:
         instructions_sheet.column_dimensions['B'].width = 40
 
         # Set column widths for main sheet
-        column_widths = [20, 28, 20, 12, 20, 18, 20, 20, 15, 35, 20]
+        column_widths = [20, 28, 20, 22, 20]
         for col_idx, width in enumerate(column_widths, start=1):
             worksheet.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
 

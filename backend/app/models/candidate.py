@@ -20,7 +20,6 @@ class Candidate(Base):
     portfolio_link = Column(String(500), nullable=True)
     linkedin = Column(String(500), nullable=True)
     github = Column(String(500), nullable=True)
-    preferred_location = Column(String(255), nullable=True)
     panel_id = Column(String(100), nullable=True)
     panel_group_id = Column(String(100), nullable=True)
     current_level = Column(String(100), nullable=True, default="Level 1")

@@ -42,3 +42,18 @@ next the path is http://localhost:8189/interview_assist/ what if i dont want /in
 i want to update the [AdminDashboard.tsx](file;file:///d%3A/projects/InterviewAssist/frontend/src/pages/AdminDashboard.tsx) page hired count is not working like [AdminCandidates.tsx](file;file:///d%3A/projects/InterviewAssist/frontend/src/pages/AdminCandidates.tsx) and check other features which we have latest updated  
 
 give the documentation for this project how to setup frontend and backend to install all packages and setup n8n and how to get crediantial from google console cloud to setup gmeet in n8n and setup celery and redis ubuntu instead of hosting give every steps to run on local machine
+
+
+
+in dashboard remove Recent Candidates, Panel Management and Recent Activity
+
+New Changes:
+------------
+[
+
+1. If panel is assigned in same time and date it should not allow to assign for another candidate on same time and date maybe if hr overrides he can so when he override then ask permission if yes override and change the panel slot to the candidate else don't 
+
+2. In the Panel Management page, when the admin changes a panelist's group, check if they have any active candidates (status of 'Scheduled'). If they do, show a warning or prevent the change.
+If the admin does switch a panelist's group, the system could automatically check if there are any active schedules for that panelist and prompt the admin to reassign those specific candidates first.
+
+]

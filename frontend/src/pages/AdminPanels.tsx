@@ -149,7 +149,6 @@ export function AdminPanels() {
   const [newPanelistEmail, setNewPanelistEmail] = useState('');
   const [newPanelistPassword, setNewPanelistPassword] = useState('');
   const [newPanelistRole, setNewPanelistRole] = useState('panel');
-  const [newPanelistHRName, setNewPanelistHRName] = useState('');
   const [newPanelistHRGrade, setNewPanelistHRGrade] = useState('');
   const [newPanelistHRMobile, setNewPanelistHRMobile] = useState('');
   const [creatingPanelist, setCreatingPanelist] = useState(false);
@@ -192,6 +191,10 @@ export function AdminPanels() {
     }
     setCreatingPanelist(true);
     try {
+      const userStr = localStorage.getItem('user');
+      const currentUser = userStr ? JSON.parse(userStr) : null;
+      const adminId = currentUser?.id ? String(currentUser.id) : '';
+
       const res = await fetch(`${API_BASE_URL}/admin/add-panel`, {
         method: 'POST',
         headers: {
@@ -202,9 +205,9 @@ export function AdminPanels() {
           email: newPanelistEmail,
           password: newPanelistPassword,
           role: newPanelistRole,
-          hr_panelists_name: newPanelistHRName || undefined,
           hr_panelist_grade: newPanelistHRGrade || undefined,
-          hr_panel_mobile: newPanelistHRMobile || undefined
+          hr_panel_mobile: newPanelistHRMobile || undefined,
+          hr_panelist_emp_id: adminId || undefined
         })
       });
       if (res.ok) {
@@ -214,7 +217,6 @@ export function AdminPanels() {
         setNewPanelistEmail('');
         setNewPanelistPassword('');
         setNewPanelistRole('panel');
-        setNewPanelistHRName('');
         setNewPanelistHRGrade('');
         setNewPanelistHRMobile('');
         fetchDbPanels();
@@ -253,7 +255,7 @@ export function AdminPanels() {
   };
 
   const specializations = useMemo(() => {
-    const types = dbPanels.map((p) => p.interview_type).filter(Boolean);
+    const types = dbPanels.map((p) => p.hr_panelist_grade).filter(Boolean);
     return Array.from(new Set(types)) as string[];
   }, [dbPanels]);
 
@@ -264,7 +266,7 @@ export function AdminPanels() {
         !panelSearch ||
         p.name.toLowerCase().includes(panelSearch.toLowerCase()) ||
         String(p.id).includes(panelSearch) ||
-        (p.interview_type && p.interview_type.toLowerCase().includes(panelSearch.toLowerCase()));
+        (p.hr_panelist_grade && p.hr_panelist_grade.toLowerCase().includes(panelSearch.toLowerCase()));
 
       if (!matchesSearch) return false;
 
@@ -278,7 +280,7 @@ export function AdminPanels() {
       }
 
       // 3. Specialization filter
-      if (typeFilter !== 'all' && p.interview_type !== typeFilter) {
+      if (typeFilter !== 'all' && p.hr_panelist_grade !== typeFilter) {
         return false;
       }
 
@@ -361,7 +363,11 @@ export function AdminPanels() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE_URL}/admin/import-panels`, {
+      const userStr = localStorage.getItem('user');
+      const currentUser = userStr ? JSON.parse(userStr) : null;
+      const adminId = currentUser?.id ? String(currentUser.id) : '';
+
+      const response = await fetch(`${API_BASE_URL}/admin/import-panels?admin_id=${adminId}`, {
         method: 'POST',
         headers: {
           'admin_email': localStorage.getItem('userEmail') || 'admin@example.com',
@@ -372,10 +378,11 @@ export function AdminPanels() {
       const data = await response.json();
 
       if (response.ok) {
+        const dupInfo = data.duplicate_count && data.duplicate_count > 0 ? ` (${data.duplicate_count} duplicates skipped/found)` : '';
         if (data.failed_count === 0) {
-          toast.success(`Successfully imported ${data.imported_count} panel members`);
+          toast.success(`Successfully imported ${data.imported_count} panel members${dupInfo}`);
         } else {
-          toast.warning(`Imported ${data.imported_count} records, ${data.failed_count} failed`);
+          toast.warning(`Imported ${data.imported_count} records, ${data.failed_count} failed${dupInfo}`);
           if (data.errors && data.errors.length > 0) {
             console.log('Import errors:', data.errors);
             const errorMsg = data.errors.slice(0, 3).map((e: any) => `Row ${e.row}: ${e.error}`).join('\n');
@@ -593,7 +600,7 @@ export function AdminPanels() {
 
     return candidates.filter(c =>
       (String(c.panelGroupId) === String(groupId) || groupPanelIds.includes(String(c.panelId))) &&
-      c.status !== 'Completed' && c.status !== 'Rejected'
+      c.status !== 'Completed' && c.status !== 'Rejected' && c.status !== 'Hired'
     ).length;
   };
 
@@ -615,18 +622,18 @@ export function AdminPanels() {
       (String(c.panelGroupId) === String(group.id) || groupPanelIds.includes(String(c.panelId))) &&
       c.interviewDate &&
       c.interviewTime &&
-      c.meetLink &&
-      c.mode === 'Online'
+      c.status !== 'Completed' && c.status !== 'Rejected' && c.status !== 'Hired'
     );
 
     // 1. Check for currently active candidate
     const activeCandidate = groupCandidates.find(c => isSlotActive(c.interviewDate, c.interviewTime));
     if (activeCandidate) {
       return {
-        link: activeCandidate.meetLink,
+        link: activeCandidate.meetLink || null,
         status: 'active',
         candidateName: activeCandidate.name,
-        timeInfo: activeCandidate.interviewTime
+        timeInfo: activeCandidate.interviewTime,
+        mode: activeCandidate.mode || 'Online'
       };
     }
 
@@ -643,10 +650,11 @@ export function AdminPanels() {
     if (upcomingCandidates.length > 0) {
       const upcomingCandidate = upcomingCandidates[0].candidate;
       return {
-        link: upcomingCandidate.meetLink,
+        link: upcomingCandidate.meetLink || null,
         status: 'upcoming',
         candidateName: upcomingCandidate.name,
-        timeInfo: `${formatShortDate(upcomingCandidate.interviewDate)} @ ${upcomingCandidate.interviewTime.split('-')[0].trim()}`
+        timeInfo: `${formatShortDate(upcomingCandidate.interviewDate)} @ ${upcomingCandidate.interviewTime.split('-')[0].trim()}`,
+        mode: upcomingCandidate.mode || 'Online'
       };
     }
 
@@ -654,7 +662,8 @@ export function AdminPanels() {
       link: null,
       status: 'none',
       candidateName: null,
-      timeInfo: null
+      timeInfo: null,
+      mode: 'Online'
     };
   };
 
@@ -935,25 +944,33 @@ export function AdminPanels() {
                                   </span>
                                 )}
                               </div>
-                              {activeMeet.link ? (
+                              {activeMeet.status !== 'none' ? (
                                 <div className="flex items-center justify-between gap-1.5 mt-1">
                                   <div className="flex flex-col min-w-0 flex-grow">
-                                    <code className="text-[10px] text-primary font-mono truncate" title={activeMeet.link}>
-                                      {activeMeet.link.replace('https://', '')}
-                                    </code>
+                                    {activeMeet.link ? (
+                                      <code className="text-[10px] text-primary font-mono truncate" title={activeMeet.link}>
+                                        {activeMeet.link.replace('https://', '')}
+                                      </code>
+                                    ) : (
+                                      <span className="text-[10px] text-primary font-semibold">
+                                        Offline Interview (Face-to-Face)
+                                      </span>
+                                    )}
                                     {activeMeet.status === 'upcoming' && (
                                       <span className="text-[8px] text-secondary/50 font-medium truncate">
                                         {activeMeet.timeInfo}
                                       </span>
                                     )}
                                   </div>
-                                  <button
-                                    onClick={() => copyLink(activeMeet.link!)}
-                                    className="p-1 hover:bg-white/60 rounded-lg transition-colors flex-shrink-0"
-                                    title="Copy meet link"
-                                  >
-                                    <CopyIcon className="w-2.5 h-2.5 text-secondary/60" />
-                                  </button>
+                                  {activeMeet.link && (
+                                    <button
+                                      onClick={() => copyLink(activeMeet.link!)}
+                                      className="p-1 hover:bg-white/60 rounded-lg transition-colors flex-shrink-0"
+                                      title="Copy meet link"
+                                    >
+                                      <CopyIcon className="w-2.5 h-2.5 text-secondary/60" />
+                                    </button>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="text-[9px] text-secondary/50 py-1 font-medium italic">
@@ -1357,7 +1374,7 @@ export function AdminPanels() {
                                 {/* Specialization */}
                                 <td className="px-4 py-3">
                                   <Badge variant="info" size="sm">
-                                    {p.interview_type || 'General'}
+                                    {p.hr_panelist_grade || 'General'}
                                   </Badge>
                                 </td>
 
@@ -1453,8 +1470,12 @@ export function AdminPanels() {
                                                   <span className="text-xs font-semibold text-secondary break-all">{p.email || 'N/A'}</span>
                                                 </div>
                                                 <div>
-                                                  <span className="text-[9px] uppercase tracking-wider text-secondary/40 block">Specialization</span>
-                                                  <span className="text-xs font-semibold text-secondary">{p.interview_type || 'General Interviewer'}</span>
+                                                  <span className="text-[9px] uppercase tracking-wider text-secondary/40 block">Specialization / Designation</span>
+                                                  <span className="text-xs font-semibold text-secondary">{p.hr_panelist_grade || 'General'}</span>
+                                                </div>
+                                                <div>
+                                                  <span className="text-[9px] uppercase tracking-wider text-secondary/40 block">Contact Number</span>
+                                                  <span className="text-xs font-semibold text-secondary">{p.hr_panel_mobile || 'N/A'}</span>
                                                 </div>
                                                 <div>
                                                   <span className="text-[9px] uppercase tracking-wider text-secondary/40 block">Assigned Group</span>
@@ -1689,7 +1710,7 @@ export function AdminPanels() {
                   const groupLabel = currentGroup ? ` (Currently in ${currentGroup.name})` : ' (Unassigned)';
                   return (
                     <option key={p.id} value={p.id}>
-                      {p.name} - {p.interview_type || 'General'}{groupLabel}
+                      {p.name} - {p.hr_panelist_grade || 'General'}{groupLabel}
                     </option>
                   );
                 })
@@ -1732,7 +1753,6 @@ export function AdminPanels() {
           setNewPanelistEmail('');
           setNewPanelistPassword('');
           setNewPanelistRole('panel');
-          setNewPanelistHRName('');
           setNewPanelistHRGrade('');
           setNewPanelistHRMobile('');
         }}
@@ -1775,29 +1795,20 @@ export function AdminPanels() {
               >
                 <option value="panel" className="bg-[#1e2345] text-white">Panel</option>
                 <option value="admin" className="bg-[#1e2345] text-white">Admin</option>
-                <option value="candidate" className="bg-[#1e2345] text-white">Candidate</option>
               </select>
             </div>
             <Input
-              label="HR Panelists Name"
-              placeholder="e.g. Sarah Johnson"
-              value={newPanelistHRName}
-              onChange={(e) => setNewPanelistHRName(e.target.value)}
-            />
-            <Input
-              label="HR Panelist Grade"
-              placeholder="e.g. Grade A"
+              label="Designation / Specialization"
+              placeholder="e.g. Senior Manager"
               value={newPanelistHRGrade}
               onChange={(e) => setNewPanelistHRGrade(e.target.value)}
             />
-            <div className="sm:col-span-2">
-              <Input
-                label="HR Panel Mobile"
-                placeholder="e.g. +91 9876543210"
-                value={newPanelistHRMobile}
-                onChange={(e) => setNewPanelistHRMobile(e.target.value)}
-              />
-            </div>
+            <Input
+              label="Contact Number"
+              placeholder="e.g. +91 9876543210"
+              value={newPanelistHRMobile}
+              onChange={(e) => setNewPanelistHRMobile(e.target.value)}
+            />
           </div>
           <div className="flex space-x-3 pt-2">
             <Button
@@ -1816,7 +1827,6 @@ export function AdminPanels() {
                 setNewPanelistEmail('');
                 setNewPanelistPassword('');
                 setNewPanelistRole('panel');
-                setNewPanelistHRName('');
                 setNewPanelistHRGrade('');
                 setNewPanelistHRMobile('');
               }}

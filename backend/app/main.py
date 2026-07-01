@@ -143,6 +143,19 @@ with engine.begin() as connection:
                 )
             )
 
+        # Drop unwanted columns if they exist in the panels table
+        cols_to_drop = [
+            "mr_panelist_grade", "mr_panel_mobile", "tag_coordinator", 
+            "slots", "team_link", "interview_type", "panel_briefing"
+        ]
+        for col in cols_to_drop:
+            if col in existing_panels_columns:
+                try:
+                    connection.execute(text(f"ALTER TABLE panels DROP COLUMN {col}"))
+                    print(f"Dropped column panels.{col}")
+                except Exception as drop_err:
+                    print(f"Failed to drop column panels.{col}: {drop_err}")
+
         # interview_schedule table columns check
         result_sched = connection.execute(
             text(
@@ -189,6 +202,37 @@ with engine.begin() as connection:
                     "ALTER TABLE interview_schedule ADD COLUMN interview_level VARCHAR(100) NULL"
                 )
             )
+
+        # Check and drop preferred_location if they exist in candidates or candidate_applications
+        result_cand = connection.execute(
+            text(
+                "SELECT COLUMN_NAME FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = 'candidates'"
+            ),
+            {"schema": db_name}
+        )
+        existing_cand_columns = {row[0] for row in result_cand}
+        if "preferred_location" in existing_cand_columns:
+            try:
+                connection.execute(text("ALTER TABLE candidates DROP COLUMN preferred_location"))
+                print("Dropped column candidates.preferred_location")
+            except Exception as e:
+                print(f"Failed to drop candidates.preferred_location: {e}")
+
+        result_cand_app = connection.execute(
+            text(
+                "SELECT COLUMN_NAME FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = 'candidate_applications'"
+            ),
+            {"schema": db_name}
+        )
+        existing_cand_app_columns = {row[0] for row in result_cand_app}
+        if "preferred_location" in existing_cand_app_columns:
+            try:
+                connection.execute(text("ALTER TABLE candidate_applications DROP COLUMN preferred_location"))
+                print("Dropped column candidate_applications.preferred_location")
+            except Exception as e:
+                print(f"Failed to drop candidate_applications.preferred_location: {e}")
 
         # email_logs table columns check
         result_emails = connection.execute(

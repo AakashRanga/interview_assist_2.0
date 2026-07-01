@@ -44,9 +44,9 @@ class AddPanelRequest(BaseModel):
     email: str
     password: str
     role: Optional[str] = "panel"
-    hr_panelists_name: Optional[str] = None
     hr_panelist_grade: Optional[str] = None
     hr_panel_mobile: Optional[str] = None
+    hr_panelist_emp_id: Optional[str] = None
 
 
 class PanelResponse(BaseModel):
@@ -95,10 +95,10 @@ def add_panel(data: AddPanelRequest):
         # Create corresponding Panel record
         panel = Panel(
             user_id=panel_user.id,
-            hr_panelists_name=data.hr_panelists_name or panel_user.full_name,
+            hr_panelists_name=panel_user.full_name,
             hr_panelist_grade=data.hr_panelist_grade,
             hr_panel_mobile=data.hr_panel_mobile,
-            interview_type="HR/Technical"
+            hr_panelist_emp_id=data.hr_panelist_emp_id
         )
         db.add(panel)
         db.commit()
@@ -580,7 +580,9 @@ def get_admin_candidates():
 def export_candidates_excel(
     search: Optional[str] = None,
     status: Optional[str] = None,
-    panelGroupId: Optional[str] = None
+    panelGroupId: Optional[str] = None,
+    role: Optional[str] = None,
+    mode: Optional[str] = None
 ):
     """
     Export matching candidates and their application details directly to Excel.
@@ -612,6 +614,33 @@ def export_candidates_excel(
                 continue
             if panelGroupId and panelGroupId != "all" and c.panel_group_id != panelGroupId:
                 continue
+            if role and role != "all" and role_name != role:
+                continue
+
+            # Fetch schedule information
+            sched_date = ""
+            sched_start = ""
+            sched_end = ""
+            sched_mode = ""
+            
+            if role_id:
+                sched_obj = db.query(InterviewSchedule).filter(
+                    InterviewSchedule.candidate_id == c.id,
+                    InterviewSchedule.job_id == role_id,
+                    InterviewSchedule.interview_status != "cancelled"
+                ).order_by(InterviewSchedule.created_at.desc()).first()
+                if sched_obj:
+                    sched_date = sched_obj.date.isoformat() if sched_obj.date else ""
+                    sched_start = sched_obj.start_time.strftime("%H:%M") if sched_obj.start_time else ""
+                    sched_end = sched_obj.end_time.strftime("%H:%M") if sched_obj.end_time else ""
+                    sched_mode = sched_obj.interview_mode or "online"
+
+            if mode and mode != "all":
+                actual_mode = sched_mode or "online"
+                if not sched_date:
+                    continue
+                if mode.lower() != actual_mode.lower():
+                    continue
 
             filtered_candidates.append({
                 "id": c.id,
@@ -620,7 +649,11 @@ def export_candidates_excel(
                 "mobile": c.phone or "",
                 "role_id": role_id,
                 "role_name": role_name,
-                "status": app_status
+                "status": app_status,
+                "sched_date": sched_date,
+                "sched_start": sched_start,
+                "sched_end": sched_end,
+                "sched_mode": sched_mode
             })
             
         # Create a new workbook
@@ -636,24 +669,6 @@ def export_candidates_excel(
         ws.append(headers)
         
         for fc in filtered_candidates:
-            # Check if this candidate already has a schedule for the role
-            sched_date = ""
-            sched_start = ""
-            sched_end = ""
-            sched_mode = ""
-            
-            if fc["role_id"]:
-                sched_obj = db.query(InterviewSchedule).filter(
-                    InterviewSchedule.candidate_id == fc["id"],
-                    InterviewSchedule.job_id == fc["role_id"],
-                    InterviewSchedule.interview_status != "cancelled"
-                ).order_by(InterviewSchedule.created_at.desc()).first()
-                if sched_obj:
-                    sched_date = sched_obj.date.isoformat() if sched_obj.date else ""
-                    sched_start = sched_obj.start_time.strftime("%H:%M") if sched_obj.start_time else ""
-                    sched_end = sched_obj.end_time.strftime("%H:%M") if sched_obj.end_time else ""
-                    sched_mode = sched_obj.interview_mode or "online"
-            
             ws.append([
                 fc["id"],
                 fc["name"],
@@ -662,10 +677,10 @@ def export_candidates_excel(
                 fc["role_id"],
                 fc["role_name"],
                 fc["status"],
-                sched_date,
-                sched_start,
-                sched_end,
-                sched_mode
+                fc["sched_date"],
+                fc["sched_start"],
+                fc["sched_end"],
+                fc["sched_mode"]
             ])
             
         # Style headers
@@ -1549,31 +1564,28 @@ class ImportPanelResponse(BaseModel):
     message: str
     imported_count: int
     failed_count: int
+    duplicate_count: Optional[int] = 0
     errors: List[dict] = []
 
 
 @router.post("/import-panels", response_model=ImportPanelResponse)
-async def import_panels(file: UploadFile = File(...)):
+async def import_panels(file: UploadFile = File(...), admin_id: Optional[str] = None):
     """
     Import panel members from Excel file.
 
     Column A: full_name
     Column B: email
     Column C: password
-    Column D: role
-    Column E: hr_panelists_name
-    Column F: hr_panelist_grade
-    Column G: hr_panel_mobile
-    Column H: tag_coordinator
-    Column I: slots
-    Column J: team_link
-    Column K: interview_type
+    Column D: hr_panelist_grade (Designation / Specialization)
+    Column E: hr_panel_mobile
     """
 
     db = SessionLocal()
     imported_count = 0
     failed_count = 0
+    duplicate_count = 0
     errors = []
+    seen_emails = set()
 
     try:
         content = await file.read()
@@ -1606,14 +1618,8 @@ async def import_panels(file: UploadFile = File(...)):
                 continue
 
             try:
-                role = get_val(row, 3) or "panel"
-                hr_panelists_name = get_val(row, 4)
-                hr_panelist_grade = get_val(row, 5)
-                hr_panel_mobile = get_val(row, 6)
-                tag_coordinator = get_val(row, 7)
-                slots = get_val(row, 8)
-                team_link = get_val(row, 9)
-                interview_type = get_val(row, 10)
+                hr_panelist_grade = get_val(row, 3)
+                hr_panel_mobile = get_val(row, 4)
 
                 if not full_name or not email or not password:
                     errors.append({
@@ -1623,6 +1629,18 @@ async def import_panels(file: UploadFile = File(...)):
                     failed_count += 1
                     continue
 
+                email_clean = str(email).strip().lower()
+                if email_clean in seen_emails:
+                    duplicate_count += 1
+                    errors.append({
+                        "row": row_idx,
+                        "error": f"Duplicate email address inside uploaded file: {email}"
+                    })
+                    failed_count += 1
+                    continue
+
+                seen_emails.add(email_clean)
+
                 existing_user = (
                     db.query(User)
                     .filter(User.email == str(email).strip())
@@ -1630,6 +1648,7 @@ async def import_panels(file: UploadFile = File(...)):
                 )
 
                 if existing_user:
+                    duplicate_count += 1
                     user = existing_user
                     if user.role != "panel" and user.role != "admin":
                         user.role = "panel"
@@ -1640,7 +1659,7 @@ async def import_panels(file: UploadFile = File(...)):
                         full_name=str(full_name).strip(),
                         email=str(email).strip(),
                         password=str(password).strip(),
-                        role=str(role).strip() or "panel"
+                        role="panel"
                     )
                     db.add(user)
                     db.flush()
@@ -1648,23 +1667,18 @@ async def import_panels(file: UploadFile = File(...)):
                 # Find or create corresponding Panel record for this user
                 panel = db.query(Panel).filter(Panel.user_id == user.id).first()
                 if panel:
-                    panel.hr_panelists_name = str(hr_panelists_name).strip() if hr_panelists_name else panel.hr_panelists_name
+                    panel.hr_panelists_name = user.full_name
                     panel.hr_panelist_grade = str(hr_panelist_grade).strip() if hr_panelist_grade else panel.hr_panelist_grade
                     panel.hr_panel_mobile = str(hr_panel_mobile).strip() if hr_panel_mobile else panel.hr_panel_mobile
-                    panel.tag_coordinator = str(tag_coordinator).strip() if tag_coordinator else panel.tag_coordinator
-                    panel.slots = str(slots).strip() if slots else panel.slots
-                    panel.team_link = str(team_link).strip() if team_link else panel.team_link
-                    panel.interview_type = str(interview_type).strip() if interview_type else panel.interview_type
+                    if admin_id:
+                        panel.hr_panelist_emp_id = admin_id
                 else:
                     panel = Panel(
                         user_id=user.id,
-                        hr_panelists_name=str(hr_panelists_name).strip() if hr_panelists_name else None,
+                        hr_panelists_name=user.full_name,
                         hr_panelist_grade=str(hr_panelist_grade).strip() if hr_panelist_grade else None,
                         hr_panel_mobile=str(hr_panel_mobile).strip() if hr_panel_mobile else None,
-                        tag_coordinator=str(tag_coordinator).strip() if tag_coordinator else None,
-                        slots=str(slots).strip() if slots else None,
-                        team_link=str(team_link).strip() if team_link else None,
-                        interview_type=str(interview_type).strip() if interview_type else None,
+                        hr_panelist_emp_id=admin_id if admin_id else None
                     )
                 db.add(panel)
                 db.commit()
@@ -1683,9 +1697,10 @@ async def import_panels(file: UploadFile = File(...)):
 
         return {
             "status": "success" if failed_count == 0 else "partial",
-            "message": f"Import completed. {imported_count} records imported, {failed_count} failed.",
+            "message": f"Import completed. {imported_count} records imported, {failed_count} failed, {duplicate_count} duplicates found.",
             "imported_count": imported_count,
             "failed_count": failed_count,
+            "duplicate_count": duplicate_count,
             "errors": errors
         }
 
@@ -1903,6 +1918,9 @@ class PanelListResponse(BaseModel):
     user_id: Optional[int] = None
     interview_type: Optional[str] = None
     panel_group_id: Optional[int] = None
+    hr_panelist_grade: Optional[str] = None
+    hr_panel_mobile: Optional[str] = None
+    hr_panelist_emp_id: Optional[str] = None
 
 
 @router.get("/panels", response_model=List[PanelListResponse])
@@ -1928,8 +1946,11 @@ def get_db_panels():
                     name=name,
                     email=email,
                     user_id=p.user_id,
-                    interview_type=p.interview_type,
-                    panel_group_id=p.panel_group_id
+                    interview_type=p.hr_panelist_grade,
+                    panel_group_id=p.panel_group_id,
+                    hr_panelist_grade=p.hr_panelist_grade,
+                    hr_panel_mobile=p.hr_panel_mobile,
+                    hr_panelist_emp_id=p.hr_panelist_emp_id
                 )
             )
         return result
@@ -1949,6 +1970,9 @@ class PanelMemberResponse(BaseModel):
     email: Optional[str] = None
     user_id: Optional[int] = None
     interview_type: Optional[str] = None
+    hr_panelist_grade: Optional[str] = None
+    hr_panel_mobile: Optional[str] = None
+    hr_panelist_emp_id: Optional[str] = None
 
 
 class PanelGroupResponse(BaseModel):
@@ -2022,7 +2046,10 @@ def list_panel_groups():
                         name=name,
                         email=email,
                         user_id=p.user_id,
-                        interview_type=p.interview_type
+                        interview_type=p.hr_panelist_grade,
+                        hr_panelist_grade=p.hr_panelist_grade,
+                        hr_panel_mobile=p.hr_panel_mobile,
+                        hr_panelist_emp_id=p.hr_panelist_emp_id
                     )
                 )
             result.append(
