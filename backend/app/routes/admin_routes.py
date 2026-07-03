@@ -815,6 +815,10 @@ def update_candidate_status(candidate_id: int, data: UpdateCandidateStatusReques
 def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequest):
     db = SessionLocal()
     try:
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        
         # Find latest pending schedule for candidate
         application = db.query(CandidateApplication).filter(
             CandidateApplication.candidate_id == candidate_id
@@ -1007,6 +1011,9 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
             
         db.commit()
         return {"status": "success", "message": "Panel assigned and scheduling workflow started."}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1393,6 +1400,9 @@ def schedule_manual(candidate_id: int, data: ScheduleManualRequest):
             
         db.commit()
         return {"status": "success", "message": "Interview slot scheduled successfully. Awaiting panel assignment."}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
