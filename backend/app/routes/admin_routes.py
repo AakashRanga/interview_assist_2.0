@@ -434,7 +434,7 @@ class RescheduleInterviewRequest(BaseModel):
 def get_admin_candidates():
     db = SessionLocal()
     try:
-        candidates = db.query(Candidate).all()
+        candidates = db.query(Candidate).join(User, Candidate.user_id == User.id).filter(User.role == "candidate").all()
         result = []
         for c in candidates:
             # 1. Fetch latest application
@@ -541,7 +541,8 @@ def get_admin_candidates():
                     # Return relative path - frontend will construct full URL
                     resume_url = c.resume_path
 
-            avatar_url = f"https://api.dicebear.com/7.x/avataaars/svg?seed={c.id}"
+            import urllib.parse
+            avatar_url = f"https://api.dicebear.com/7.x/initials/svg?seed={urllib.parse.quote(c.full_name)}&radius=50"
 
             result.append(
                 CandidateAdminDetail(
@@ -589,7 +590,7 @@ def export_candidates_excel(
     """
     db = SessionLocal()
     try:
-        candidates = db.query(Candidate).all()
+        candidates = db.query(Candidate).join(User, Candidate.user_id == User.id).filter(User.role == "candidate").all()
         filtered_candidates = []
         
         for c in candidates:

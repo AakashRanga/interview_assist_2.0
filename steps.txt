@@ -94,3 +94,12 @@ Here's the Celery flow:
   │     - Executes schedule_interview_task                          │
   │     - Updates DB with meet link                                  │
   └─────────────────────────────────────────────────────────────────┘
+
+Here are the updated step-by-step instructions to move your application from "Testing" to "In Production":
+1. Go to the Google Cloud Console.
+2. Select your project from the dropdown menu at the top of the page.
+3. Click the Navigation Menu (the three horizontal bars/hamburger icon in the top-left corner).
+4. Go to APIs & Services > Google Auth Platform (Note: If you don't see it, click View all products and scroll down to the Management section).
+5. In the left-hand sidebar under the Google Auth Platform section, click on Audience.
+6. Under the Publishing status section at the top of the main screen, click the Publish App button.
+7. Confirm your choice in the pop-up window to finalize pushing your app into production

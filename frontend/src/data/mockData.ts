@@ -279,7 +279,7 @@ export const mockCandidates: Candidate[] = Array.from(
       panelId: category.id,
       panelGroupId: category.panelGroupId,
       profileComplete: 60 + i % 40,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${i}`,
+      avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(`Candidate ${i + 1}`)}&radius=50`,
       skills: [
       'React',
       'TypeScript',

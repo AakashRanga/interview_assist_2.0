@@ -1016,7 +1016,8 @@ def get_panel_dashboard(user_id: int):
                 edu_str = f"{latest_edu.degree} from {latest_edu.university} (Class of {latest_edu.graduation_year})"
 
             resume_url = c.resume_path if c.resume_path else None
-            avatar_url = f"https://api.dicebear.com/7.x/avataaars/svg?seed={c.id}"
+            import urllib.parse
+            avatar_url = f"https://api.dicebear.com/7.x/initials/svg?seed={urllib.parse.quote(c.full_name)}&radius=50"
 
             formatted_candidates.append({
                 "id": str(c.id),
