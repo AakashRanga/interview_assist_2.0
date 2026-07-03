@@ -56,5 +56,5 @@ New Changes:
 2. In the Panel Management page, when the admin changes a panelist's group, check if they have any active candidates (status of 'Scheduled'). If they do, show a warning or prevent the change.
 If the admin does switch a panelist's group, the system could automatically check if there are any active schedules for that panelist and prompt the admin to reassign those specific candidates first.
 
-3. Set auto navigationn from schedule Interview Slot to panel creation, the navigation should only happen for first time schedule and assign panel not for reschedule and reassign. While navigating add skip button to close the model only if they want they can enter details or else they can use normal as usual method itself
+3. Set auto navigation from schedule Interview Slot to panel creation, the navigation should only happen for first time schedule and assign panel, no need for reschedule and reassign. While navigating add skip button to close the model only if they want they can enter details or else they can use normal as usual method itself give me implementation plan
 ]

@@ -103,6 +103,7 @@ export function AdminCandidates() {
   const [overrideModalOpen, setOverrideModalOpen] = useState(false);
   const [overrideConflictingNames, setOverrideConflictingNames] = useState<string[]>([]);
   const onConfirmOverrideRef = useRef<() => void>(() => { });
+  const [isAutoNavigated, setIsAutoNavigated] = useState(false);
 
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
   const [isSubmittingReassign, setIsSubmittingReassign] = useState(false);
@@ -214,6 +215,7 @@ export function AdminCandidates() {
         });
     }
     if (action === 'reassign') {
+      setIsAutoNavigated(false);
       const initialGroupId = candidate.panelGroupId || String(dbPanelGroups[0]?.id || '');
       setSelectedPanelGroupId(initialGroupId);
 
@@ -374,6 +376,7 @@ export function AdminCandidates() {
       }
       toast.success('Panel assigned successfully');
       setReassignOpen(false);
+      setIsAutoNavigated(false);
       setOverrideModalOpen(false);
       fetchCandidates();
     } catch (err: any) {
@@ -421,7 +424,34 @@ export function AdminCandidates() {
       toast.success('Interview slot scheduled successfully. Now you can assign a panel to activate the schedule.');
       setScheduleManualOpen(false);
       setOverrideModalOpen(false);
-      fetchCandidates();
+      
+      // Auto-navigate to Panel Assignment modal
+      const candidateId = selectedCandidate.id;
+      const initialGroupId = selectedCandidate.panelGroupId || String(dbPanelGroups[0]?.id || '');
+      setSelectedPanelGroupId(initialGroupId);
+      setSelectedPanelIds([]);
+      setBusyPanelIds([]);
+      setIsAutoNavigated(true);
+
+      const params = new URLSearchParams({
+        date_str: schedDate,
+        start_time_str: schedStartTime,
+        end_time_str: schedEndTime,
+        exclude_candidate_id: String(candidateId)
+      });
+
+      fetch(`${API_BASE_URL}/admin/panels/busy?${params.toString()}`)
+        .then(res => res.ok ? res.json() : {})
+        .then((data: any) => {
+          if (data && data.busy_panel_ids) {
+            setBusyPanelIds(data.busy_panel_ids.map((id: any) => String(id)));
+          }
+        })
+        .catch(err => console.error("Error fetching busy panels in auto-navigation", err))
+        .finally(() => {
+          setReassignOpen(true);
+          fetchCandidates();
+        });
     } catch (err: any) {
       toast.error(err.message || 'Error scheduling interview');
     } finally {
@@ -1127,11 +1157,19 @@ export function AdminCandidates() {
       {/* Assign Panel modal */}
       <Modal
         isOpen={reassignOpen}
-        onClose={() => setReassignOpen(false)}
+        onClose={() => {
+          setReassignOpen(false);
+          setIsAutoNavigated(false);
+        }}
         title={`Assign Panel to ${selectedCandidate?.name ?? ''}`}
         size="md">
 
         <div className="space-y-4">
+          {isAutoNavigated && (
+            <div className="p-3.5 bg-primary/10 border border-primary/20 text-primary rounded-xl text-[11px] font-semibold leading-relaxed">
+              Interview slot scheduled successfully! Please assign an interview panel to activate the slot, or click Skip to assign one later.
+            </div>
+          )}
           <div>
             <label className="block text-[10px] font-medium text-secondary/70 mb-2 uppercase tracking-wider">
               Select Panel Group
@@ -1210,16 +1248,27 @@ export function AdminCandidates() {
               className="flex-grow"
               onClick={handleConfirmReassign}
               loading={isSubmittingReassign}>
-
               Assign Panel
             </Button>
-            <Button
-              variant="outline"
-              className="flex-grow"
-              onClick={() => setReassignOpen(false)}>
-
-              Cancel
-            </Button>
+            {isAutoNavigated ? (
+              <Button
+                variant="outline"
+                className="flex-grow border-amber-500/50 text-amber-500 hover:bg-amber-500/10 hover:border-amber-600 hover:text-amber-600 font-semibold"
+                onClick={() => {
+                  setReassignOpen(false);
+                  setIsAutoNavigated(false);
+                }}
+              >
+                Skip
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                className="flex-grow"
+                onClick={() => setReassignOpen(false)}>
+                Cancel
+              </Button>
+            )}
           </div>
         </div>
       </Modal>
