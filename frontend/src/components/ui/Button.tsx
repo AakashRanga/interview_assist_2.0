@@ -3,13 +3,16 @@ import { motion } from 'framer-motion';
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
+  loading?: boolean;
   children: React.ReactNode;
 }
 export function Button({
   variant = 'primary',
   size = 'md',
+  loading = false,
   children,
   className = '',
+  disabled,
   ...props
 }: ButtonProps) {
   const baseStyles =
@@ -28,16 +31,23 @@ export function Button({
   };
   return (
     <motion.button
-      whileHover={{
+      whileHover={loading ? {} : {
         scale: 1.02
       }}
-      whileTap={{
+      whileTap={loading ? {} : {
         scale: 0.98
       }}
       className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
+      disabled={disabled || loading}
       {...props}>
       
-      {children}
+      {loading ? (
+        <div className="flex items-center justify-center">
+          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      ) : (
+        children
+      )}
     </motion.button>);
 
 }

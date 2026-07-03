@@ -341,10 +341,10 @@ export function AdminSettings() {
                     <Button
                       size="sm"
                       onClick={handleUpdatePassword}
-                      disabled={updatingPassword}
+                      loading={updatingPassword}
                     >
                       <KeyIcon className="w-3 h-3" />
-                      {updatingPassword ? 'Updating...' : 'Update Password'}
+                      Update Password
                     </Button>
                   </div>
                 </div>

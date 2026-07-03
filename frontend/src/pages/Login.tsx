@@ -154,8 +154,8 @@ export function Login() {
               </label>
             </div>
 
-            <Button type="submit"  id="login-button" size="lg" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
+            <Button type="submit" id="login-button" size="lg" className="w-full" loading={loading}>
+              Sign In
             </Button>
           </form>
 

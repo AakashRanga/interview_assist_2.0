@@ -155,6 +155,8 @@ export function AdminPanels() {
   const [resetModal, setResetModal] = useState<{ isOpen: boolean; userId: number | null; userName: string; email?: string }>({ isOpen: false, userId: null, userName: '' });
   const [resetPasswordValue, setResetPasswordValue] = useState('');
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [isSubmittingGroup, setIsSubmittingGroup] = useState(false);
+  const [isSubmittingAddMember, setIsSubmittingAddMember] = useState(false);
 
   const handleResetUserPassword = async (userId: number, newPass: string) => {
     if (!newPass || newPass.trim().length < 4) {
@@ -426,6 +428,7 @@ export function AdminPanels() {
       toast.error('Please enter a panel group name');
       return;
     }
+    setIsSubmittingGroup(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/panel-groups`, {
         method: 'POST',
@@ -449,10 +452,13 @@ export function AdminPanels() {
       }
     } catch (err) {
       toast.error('Error creating panel group');
+    } finally {
+      setIsSubmittingGroup(false);
     }
   };
 
   const handleAssignPanelist = async (panelId: number, groupId: number | null) => {
+    setIsSubmittingAddMember(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/panels/${panelId}/assign-group`, {
         method: 'PUT',
@@ -470,6 +476,8 @@ export function AdminPanels() {
       }
     } catch (err) {
       toast.error('Error assigning panel member');
+    } finally {
+      setIsSubmittingAddMember(false);
     }
   };
 
@@ -1660,6 +1668,7 @@ export function AdminPanels() {
             <Button
               className="flex-grow"
               onClick={handleCreateGroup}
+              loading={isSubmittingGroup}
             >
               Create
             </Button>
@@ -1722,6 +1731,7 @@ export function AdminPanels() {
             <Button
               className="flex-grow"
               disabled={!selectedPanelistId}
+              loading={isSubmittingAddMember}
               onClick={() => {
                 if (selectedPanelistId && addMemberOpen) {
                   handleAssignPanelist(Number(selectedPanelistId), addMemberOpen);
@@ -1814,9 +1824,9 @@ export function AdminPanels() {
             <Button
               className="flex-grow"
               onClick={handleCreatePanelist}
-              disabled={creatingPanelist}
+              loading={creatingPanelist}
             >
-              {creatingPanelist ? 'Creating...' : 'Create Panel Member'}
+              Create Panel Member
             </Button>
             <Button
               variant="outline"
@@ -1869,10 +1879,10 @@ export function AdminPanels() {
             <Button
               className="flex-grow flex items-center justify-center gap-1.5"
               onClick={() => handleResetUserPassword(resetModal.userId!, resetPasswordValue)}
-              disabled={resettingPassword}
+              loading={resettingPassword}
             >
               <ShieldCheckIcon className="w-4 h-4" />
-              {resettingPassword ? 'Updating...' : 'Save Password'}
+              Save Password
             </Button>
             <Button
               variant="outline"

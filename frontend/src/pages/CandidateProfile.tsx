@@ -74,6 +74,8 @@ export function CandidateProfile() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [updatingPassword, setUpdatingPassword] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
 
   const handleUpdatePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
@@ -404,6 +406,7 @@ export function CandidateProfile() {
       return;
     }
 
+    setIsApplying(true);
     try {
       const response = await fetch(`${API_BASE_URL}/candidate/user/${userId}/apply`, {
         method: 'POST',
@@ -431,6 +434,8 @@ export function CandidateProfile() {
     } catch (err) {
       console.error(err);
       toast.error('Failed to connect to server');
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -603,6 +608,7 @@ export function CandidateProfile() {
     let resumePath: string | undefined | null = resume?.path;
     let certificatePaths: string[] = certificates.map((cert) => cert.path).filter(Boolean) as string[];
 
+    setIsSavingDraft(true);
     try {
       const uploadResult = await uploadDocuments();
       resumePath = uploadResult.resumePath ?? resumePath;
@@ -610,6 +616,7 @@ export function CandidateProfile() {
     } catch (err) {
       console.error(err);
       toast.error('Failed to upload documents');
+      setIsSavingDraft(false);
       return false;
     }
 
@@ -693,6 +700,8 @@ export function CandidateProfile() {
       console.error(err);
       toast.error('Failed to connect to server');
       return false;
+    } finally {
+      setIsSavingDraft(false);
     }
   };
 
@@ -1386,23 +1395,24 @@ export function CandidateProfile() {
                       }
                       </div>
                       <Button
-                      size="sm"
-                      variant={
-                      appliedRoleIds.has(String(selectedRole.id)) ?
-                      'outline' :
-                      'primary'
-                      }
-                      onClick={handleApply}
-                      disabled={appliedRoleIds.size > 0}>
-                      
-                        {appliedRoleIds.has(String(selectedRole.id)) ?
-                      <>
+                        size="sm"
+                        variant={
+                          appliedRoleIds.has(String(selectedRole.id)) ?
+                          'outline' :
+                          'primary'
+                        }
+                        onClick={handleApply}
+                        disabled={appliedRoleIds.size > 0}
+                        loading={isApplying}
+                      >
+                        {appliedRoleIds.has(String(selectedRole.id)) ? (
+                          <>
                             <CheckCircleIcon className="w-3.5 h-3.5 mr-1" />
                             Applied
-                          </> :
-    
-                      'Apply Now'
-                      }
+                          </>
+                        ) : (
+                          'Apply Now'
+                        )}
                       </Button>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -1741,10 +1751,10 @@ export function CandidateProfile() {
                     <Button
                       size="sm"
                       onClick={handleUpdatePassword}
-                      disabled={updatingPassword}
+                      loading={updatingPassword}
                     >
                       <ShieldIcon className="w-3.5 h-3.5 mr-2" />
-                      {updatingPassword ? 'Updating...' : 'Update Password'}
+                      Update Password
                     </Button>
                   </div>
                 </div>
@@ -1768,7 +1778,7 @@ export function CandidateProfile() {
               }}
               className="flex justify-end space-x-3">
               
-              <Button variant="primary" size="lg" onClick={() => handleSave(true)}>
+              <Button variant="primary" size="lg" onClick={() => handleSave(true)} loading={isSavingDraft}>
                 Save Draft
               </Button>
             </motion.div>

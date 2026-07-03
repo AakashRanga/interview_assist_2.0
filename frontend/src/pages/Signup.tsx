@@ -130,8 +130,8 @@ export function Signup() {
               disabled={loading} />
             
 
-            <Button type="submit" size="lg" className="w-full" disabled={loading}>
-              {loading ? 'Creating account...' : 'Sign Up'}
+            <Button type="submit" size="lg" className="w-full" loading={loading}>
+              Sign Up
             </Button>
           </form>
 

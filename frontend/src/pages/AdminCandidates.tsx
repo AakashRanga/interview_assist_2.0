@@ -104,6 +104,11 @@ export function AdminCandidates() {
   const [overrideConflictingNames, setOverrideConflictingNames] = useState<string[]>([]);
   const onConfirmOverrideRef = useRef<() => void>(() => { });
 
+  const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+  const [isSubmittingReassign, setIsSubmittingReassign] = useState(false);
+  const [isSubmittingScheduleManual, setIsSubmittingScheduleManual] = useState(false);
+  const [isSubmittingRejection, setIsSubmittingRejection] = useState(false);
+
 
 
 
@@ -297,6 +302,7 @@ export function AdminCandidates() {
       toast.error('Please select date, start time, and end time');
       return;
     }
+    setIsSubmittingReschedule(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/candidates/${selectedCandidate.id}/reschedule`, {
         method: 'PUT',
@@ -319,6 +325,7 @@ export function AdminCandidates() {
           setOverrideConflictingNames(errData.detail.conflicts);
           onConfirmOverrideRef.current = () => handleConfirmReschedule(true);
           setOverrideModalOpen(true);
+          setIsSubmittingReschedule(false);
           return;
         }
         throw new Error(errData.detail || 'Failed to reschedule');
@@ -329,6 +336,8 @@ export function AdminCandidates() {
       fetchCandidates();
     } catch (err: any) {
       toast.error(err.message || 'Error rescheduling interview');
+    } finally {
+      setIsSubmittingReschedule(false);
     }
   };
 
@@ -339,6 +348,7 @@ export function AdminCandidates() {
       toast.error('Please select at least one Panelist');
       return;
     }
+    setIsSubmittingReassign(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/candidates/${selectedCandidate.id}/reassign`, {
         method: 'PUT',
@@ -357,6 +367,7 @@ export function AdminCandidates() {
           setOverrideConflictingNames(errData.detail.conflicts);
           onConfirmOverrideRef.current = () => handleConfirmReassign(true);
           setOverrideModalOpen(true);
+          setIsSubmittingReassign(false);
           return;
         }
         throw new Error(errData.detail || 'Failed to assign panel');
@@ -367,6 +378,8 @@ export function AdminCandidates() {
       fetchCandidates();
     } catch (err: any) {
       toast.error(err.message || 'Error assigning panel');
+    } finally {
+      setIsSubmittingReassign(false);
     }
   };
 
@@ -377,6 +390,7 @@ export function AdminCandidates() {
       toast.error('Please select date, start time, and end time');
       return;
     }
+    setIsSubmittingScheduleManual(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/candidates/${selectedCandidate.id}/schedule-manual`, {
         method: 'POST',
@@ -399,6 +413,7 @@ export function AdminCandidates() {
           setOverrideConflictingNames(errData.detail.conflicts);
           onConfirmOverrideRef.current = () => handleConfirmScheduleManual(true);
           setOverrideModalOpen(true);
+          setIsSubmittingScheduleManual(false);
           return;
         }
         throw new Error(errData.detail || 'Failed to schedule');
@@ -409,6 +424,8 @@ export function AdminCandidates() {
       fetchCandidates();
     } catch (err: any) {
       toast.error(err.message || 'Error scheduling interview');
+    } finally {
+      setIsSubmittingScheduleManual(false);
     }
   };
 
@@ -472,12 +489,17 @@ export function AdminCandidates() {
     }
   };
 
-  const handleConfirmRejection = () => {
+  const handleConfirmRejection = async () => {
     if (candidateToRejectId) {
-      handleApproveReject('Rejected', candidateToRejectId, rejectionReasonText);
-      setRejectionModalOpen(false);
-      setCandidateToRejectId(null);
-      setRejectionReasonText('');
+      setIsSubmittingRejection(true);
+      try {
+        await handleApproveReject('Rejected', candidateToRejectId, rejectionReasonText);
+        setRejectionModalOpen(false);
+        setCandidateToRejectId(null);
+        setRejectionReasonText('');
+      } finally {
+        setIsSubmittingRejection(false);
+      }
     }
   };
 
@@ -985,6 +1007,7 @@ export function AdminCandidates() {
             <Button
               className="flex-grow bg-red-600 hover:bg-red-700 text-white"
               onClick={handleConfirmRejection}
+              loading={isSubmittingRejection}
             >
               Confirm Reject
             </Button>
@@ -1087,7 +1110,8 @@ export function AdminCandidates() {
           <div className="flex space-x-3 mt-6">
             <Button
               className="flex-grow"
-              onClick={handleConfirmReschedule}>
+              onClick={handleConfirmReschedule}
+              loading={isSubmittingReschedule}>
               Confirm
             </Button>
             <Button
@@ -1184,7 +1208,8 @@ export function AdminCandidates() {
           <div className="flex space-x-3">
             <Button
               className="flex-grow"
-              onClick={handleConfirmReassign}>
+              onClick={handleConfirmReassign}
+              loading={isSubmittingReassign}>
 
               Assign Panel
             </Button>
@@ -1287,7 +1312,8 @@ export function AdminCandidates() {
           <div className="flex space-x-3 mt-6">
             <Button
               className="flex-grow"
-              onClick={handleConfirmScheduleManual}>
+              onClick={handleConfirmScheduleManual}
+              loading={isSubmittingScheduleManual}>
               Save Slot
             </Button>
             <Button

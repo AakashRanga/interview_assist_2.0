@@ -21,6 +21,7 @@ import { type JobRole } from '../data/jobRoles';
 export function AdminRoles() {
   const [roles, setRoles] = useState<JobRole[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSubmittingRole, setIsSubmittingRole] = useState(false);
   const [title, setTitle] = useState('');
   const [location, setLocation] = useState('');
   const [experience, setExperience] = useState('');
@@ -70,6 +71,7 @@ export function AdminRoles() {
       toast.error('Total vacancy must be at least 1');
       return;
     }
+    setIsSubmittingRole(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/roles`, {
         method: 'POST',
@@ -101,6 +103,8 @@ export function AdminRoles() {
       fetchRoles();
     } catch (err: any) {
       toast.error(err.message || 'Error creating job role');
+    } finally {
+      setIsSubmittingRole(false);
     }
   };
 
@@ -245,7 +249,7 @@ export function AdminRoles() {
 
             </div>
             <div className="flex justify-end">
-              <Button type="submit">
+              <Button type="submit" loading={isSubmittingRole}>
                 <PlusIcon className="w-3.5 h-3.5 mr-1" />
                 Create Role
               </Button>
