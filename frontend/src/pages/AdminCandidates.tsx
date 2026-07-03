@@ -100,6 +100,12 @@ export function AdminCandidates() {
   const [busyPanelIds, setBusyPanelIds] = useState<string[]>([]);
   const [dbPanels, setDbPanels] = useState<any[]>([]);
   const [dbPanelGroups, setDbPanelGroups] = useState<any[]>([]);
+  const [overrideModalOpen, setOverrideModalOpen] = useState(false);
+  const [overrideConflictingNames, setOverrideConflictingNames] = useState<string[]>([]);
+  const onConfirmOverrideRef = useRef<() => void>(() => { });
+
+
+
 
   const fetchCandidates = async () => {
     try {
@@ -230,7 +236,8 @@ export function AdminCandidates() {
         const params = new URLSearchParams({
           date_str: dateStr,
           start_time_str: startTimeStr,
-          end_time_str: endTimeStr
+          end_time_str: endTimeStr,
+          exclude_candidate_id: String(candidate.id)
         });
 
         fetch(`${API_BASE_URL}/admin/panels/busy?${params.toString()}`)
@@ -283,7 +290,8 @@ export function AdminCandidates() {
     }
   };
 
-  const handleConfirmReschedule = async () => {
+  const handleConfirmReschedule = async (force: any = false) => {
+    const isForce = force === true;
     if (!selectedCandidate) return;
     if (!newDate || !newStartTime || !newEndTime) {
       toast.error('Please select date, start time, and end time');
@@ -301,22 +309,31 @@ export function AdminCandidates() {
           end_time: newEndTime,
           interview_level: rescheduleLevel,
           interview_mode: rescheduleMode,
-          venue: rescheduleMode === 'Offline' ? rescheduleVenue : undefined
+          venue: rescheduleMode === 'Offline' ? rescheduleVenue : undefined,
+          force: isForce
         }),
       });
       if (!res.ok) {
         const errData = await res.json();
+        if (errData.detail && errData.detail.error_type === "panel_busy") {
+          setOverrideConflictingNames(errData.detail.conflicts);
+          onConfirmOverrideRef.current = () => handleConfirmReschedule(true);
+          setOverrideModalOpen(true);
+          return;
+        }
         throw new Error(errData.detail || 'Failed to reschedule');
       }
       toast.success('Interview rescheduled successfully');
       setRescheduleOpen(false);
+      setOverrideModalOpen(false);
       fetchCandidates();
     } catch (err: any) {
       toast.error(err.message || 'Error rescheduling interview');
     }
   };
 
-  const handleConfirmReassign = async () => {
+  const handleConfirmReassign = async (force: any = false) => {
+    const isForce = force === true;
     if (!selectedCandidate) return;
     if (selectedPanelIds.length === 0) {
       toast.error('Please select at least one Panelist');
@@ -331,21 +348,30 @@ export function AdminCandidates() {
         body: JSON.stringify({
           panel_group_id: selectedPanelGroupId || 'group-1',
           panel_id: JSON.stringify(selectedPanelIds),
+          force: isForce
         }),
       });
       if (!res.ok) {
         const errData = await res.json();
+        if (errData.detail && errData.detail.error_type === "panel_busy") {
+          setOverrideConflictingNames(errData.detail.conflicts);
+          onConfirmOverrideRef.current = () => handleConfirmReassign(true);
+          setOverrideModalOpen(true);
+          return;
+        }
         throw new Error(errData.detail || 'Failed to assign panel');
       }
       toast.success('Panel assigned successfully');
       setReassignOpen(false);
+      setOverrideModalOpen(false);
       fetchCandidates();
     } catch (err: any) {
       toast.error(err.message || 'Error assigning panel');
     }
   };
 
-  const handleConfirmScheduleManual = async () => {
+  const handleConfirmScheduleManual = async (force: any = false) => {
+    const isForce = force === true;
     if (!selectedCandidate) return;
     if (!schedDate || !schedStartTime || !schedEndTime) {
       toast.error('Please select date, start time, and end time');
@@ -363,15 +389,23 @@ export function AdminCandidates() {
           end_time: schedEndTime,
           interview_mode: schedMode,
           interview_level: schedLevel,
-          venue: schedMode === 'Offline' ? schedVenue : undefined
+          venue: schedMode === 'Offline' ? schedVenue : undefined,
+          force: isForce
         }),
       });
       if (!res.ok) {
         const errData = await res.json();
+        if (errData.detail && errData.detail.error_type === "panel_busy") {
+          setOverrideConflictingNames(errData.detail.conflicts);
+          onConfirmOverrideRef.current = () => handleConfirmScheduleManual(true);
+          setOverrideModalOpen(true);
+          return;
+        }
         throw new Error(errData.detail || 'Failed to schedule');
       }
       toast.success('Interview slot scheduled successfully. Now you can assign a panel to activate the schedule.');
       setScheduleManualOpen(false);
+      setOverrideModalOpen(false);
       fetchCandidates();
     } catch (err: any) {
       toast.error(err.message || 'Error scheduling interview');
@@ -656,7 +690,7 @@ export function AdminCandidates() {
                 className="w-full pl-9 pr-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary placeholder:text-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/50" />
 
             </div>
-             <select
+            <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 bg-white/70 border border-white/60 rounded-xl text-xs text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50">
@@ -856,7 +890,7 @@ export function AdminCandidates() {
                                 <span className="text-xs text-secondary font-medium">
                                   {new Date(c.interviewDate).toLocaleDateString()}
                                 </span>
-                                 <span className="ml-1.5 text-[10px]">
+                                <span className="ml-1.5 text-[10px]">
                                   <Badge
                                     variant={c.mode === 'Offline' ? 'warning' : 'success'}
                                     size="sm"
@@ -1261,6 +1295,48 @@ export function AdminCandidates() {
               className="flex-grow"
               onClick={() => setScheduleManualOpen(false)}>
               Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Override Confirm Modal */}
+      <Modal
+        isOpen={overrideModalOpen}
+        onClose={() => setOverrideModalOpen(false)}
+        title="Confirm Panelist Overlap Override"
+        size="sm"
+      >
+        <div className="space-y-4 text-center">
+          <div className="mx-auto w-12 h-12 bg-amber-500/10 border border-amber-500/20 rounded-full flex items-center justify-center text-amber-500 mb-2">
+            <span className="text-xl font-bold">!</span>
+          </div>
+          <p className="text-xs text-secondary font-medium leading-relaxed">
+            The following panelist(s) are already assigned to another candidate at this date and time:
+          </p>
+          <div className="bg-slate-100/50 dark:bg-slate-900/50 border border-white/20 p-3 rounded-xl max-h-40 overflow-y-auto">
+            <ul className="text-[10px] text-left text-gray-800 dark:text-white space-y-1 list-disc pl-4 font-semibold">
+              {overrideConflictingNames.map((name, idx) => (
+                <li key={idx}>{name}</li>
+              ))}
+            </ul>
+          </div>
+          <p className="text-[10px] text-secondary/60">
+            Do you want to override this conflict and proceed anyway?
+          </p>
+          <div className="flex space-x-3 pt-2">
+            <Button
+              className="flex-grow bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={() => onConfirmOverrideRef.current()}
+            >
+              Yes, Override
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-grow"
+              onClick={() => setOverrideModalOpen(false)}
+            >
+              No, Cancel
             </Button>
           </div>
         </div>

@@ -419,6 +419,7 @@ class UpdateCandidateStatusRequest(BaseModel):
 class ReassignCandidatePanelRequest(BaseModel):
     panel_id: str
     panel_group_id: str
+    force: Optional[bool] = False
 
 
 class RescheduleInterviewRequest(BaseModel):
@@ -428,6 +429,7 @@ class RescheduleInterviewRequest(BaseModel):
     interview_level: Optional[str] = None
     interview_mode: Optional[str] = None
     venue: Optional[str] = None
+    force: Optional[bool] = False
 
 
 @router.get("/candidates", response_model=List[CandidateAdminDetail])
@@ -813,14 +815,6 @@ def update_candidate_status(candidate_id: int, data: UpdateCandidateStatusReques
 def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequest):
     db = SessionLocal()
     try:
-        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
-        if not candidate:
-            raise HTTPException(status_code=404, detail="Candidate not found")
-        
-        candidate.panel_id = data.panel_id
-        candidate.panel_group_id = data.panel_group_id
-        db.add(candidate)
-        
         # Find latest pending schedule for candidate
         application = db.query(CandidateApplication).filter(
             CandidateApplication.candidate_id == candidate_id
@@ -838,6 +832,30 @@ def reassign_candidate_panel(candidate_id: int, data: ReassignCandidatePanelRequ
                 status_code=400,
                 detail="Candidate does not have a scheduled interview slot. Please schedule date and time first."
             )
+
+        # Check if panel is busy
+        if not data.force:
+            conflicts = check_panelists_busy(
+                db,
+                data.panel_id,
+                schedule.date,
+                schedule.start_time,
+                schedule.end_time,
+                candidate_id
+            )
+            if conflicts:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error_type": "panel_busy",
+                        "conflicts": conflicts,
+                        "message": f"Panelist(s) {', '.join(conflicts)} are busy at this time."
+                    }
+                )
+
+        candidate.panel_id = data.panel_id
+        candidate.panel_group_id = data.panel_group_id
+        db.add(candidate)
             
         # Check if first time or reassigned panel
         old_panel_id = schedule.panel_id
@@ -1245,6 +1263,7 @@ class ScheduleManualRequest(BaseModel):
     interview_mode: str
     interview_level: Optional[str] = None
     venue: Optional[str] = None
+    force: Optional[bool] = False
 
 
 @router.post("/candidates/{candidate_id}/schedule-manual")
@@ -1265,6 +1284,26 @@ def schedule_manual(candidate_id: int, data: ScheduleManualRequest):
             end_time = datetime.strptime(data.end_time, "%H:%M").time()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid time format. Expected HH:MM")
+
+        # Check if already assigned panel is busy in the new slot
+        if not data.force and candidate.panel_id:
+            conflicts = check_panelists_busy(
+                db,
+                candidate.panel_id,
+                target_date,
+                start_time,
+                end_time,
+                candidate_id
+            )
+            if conflicts:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error_type": "panel_busy",
+                        "conflicts": conflicts,
+                        "message": f"Panelist(s) {', '.join(conflicts)} are busy at this time."
+                    }
+                )
             
         application = db.query(CandidateApplication).filter(
             CandidateApplication.candidate_id == candidate_id
@@ -1389,6 +1428,26 @@ def reschedule_interview(candidate_id: int, data: RescheduleInterviewRequest):
                 target_end_time = datetime.strptime(data.end_time.split()[0], "%H:%M:%S").time()
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid end time format. Expected HH:MM")
+
+        # Check if already assigned panel is busy in the new slot
+        if not data.force and candidate.panel_id:
+            conflicts = check_panelists_busy(
+                db,
+                candidate.panel_id,
+                target_date,
+                target_start_time,
+                target_end_time,
+                candidate_id
+            )
+            if conflicts:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error_type": "panel_busy",
+                        "conflicts": conflicts,
+                        "message": f"Panelist(s) {', '.join(conflicts)} are busy at this time."
+                    }
+                )
 
         time_str = f"{target_start_time.strftime('%I:%M %p')} - {target_end_time.strftime('%I:%M %p')}"
 
@@ -1852,6 +1911,74 @@ def delete_job_role(role_id: int):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+def check_panelists_busy(db, panel_ids_str: Optional[str], date_val, start_time_val, end_time_val, candidate_id: int) -> List[str]:
+    """
+    Check if any of the panelists in panel_ids_str is busy at the given date and time range.
+    Returns list of names of busy panelists.
+    """
+    if not panel_ids_str:
+        return []
+    
+    try:
+        p_ids = json.loads(panel_ids_str)
+        if not isinstance(p_ids, list):
+            p_ids = [p_ids]
+    except Exception:
+        # Fallback if it is a comma separated string
+        p_ids = [pid.strip() for pid in panel_ids_str.split(",") if pid.strip()]
+        
+    p_ids = [str(pid) for pid in p_ids]
+    if not p_ids:
+        return []
+        
+    # Find overlapping schedules for other candidates
+    overlapping = db.query(InterviewSchedule).filter(
+        InterviewSchedule.date == date_val,
+        InterviewSchedule.interview_status != "cancelled",
+        InterviewSchedule.start_time < end_time_val,
+        InterviewSchedule.end_time > start_time_val,
+        InterviewSchedule.candidate_id != candidate_id
+    ).all()
+    
+    busy_p_ids = []
+    for s in overlapping:
+        if s.panel_id:
+            try:
+                ids = json.loads(s.panel_id)
+                if isinstance(ids, list):
+                    busy_p_ids.extend([str(pid) for pid in ids])
+                else:
+                    busy_p_ids.append(str(ids))
+            except Exception:
+                busy_p_ids.append(s.panel_id)
+                
+    # Intersection of requested panel IDs and busy panel IDs
+    conflicting_ids = [pid for pid in p_ids if pid in busy_p_ids]
+    if not conflicting_ids:
+        return []
+        
+    # Get names of conflicting panelists
+    from app.models.panel import Panel
+    from app.models.user import User
+    conflicting_names = []
+    for pid in conflicting_ids:
+        try:
+            p = db.query(Panel).filter(Panel.id == int(pid)).first()
+            if p:
+                name = p.hr_panelists_name
+                if not name and p.user_id:
+                    user = db.query(User).filter(User.id == p.user_id).first()
+                    if user:
+                        name = user.full_name
+                conflicting_names.append(name or f"Panelist {pid}")
+            else:
+                conflicting_names.append(f"Panelist {pid}")
+        except Exception:
+            conflicting_names.append(f"Panelist {pid}")
+            
+    return conflicting_names
 
 
 @router.get("/panels/busy")
