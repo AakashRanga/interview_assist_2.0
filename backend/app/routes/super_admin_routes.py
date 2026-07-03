@@ -179,6 +179,98 @@ def get_active_users(x_diag_token: Optional[str] = Header(None)):
         "recent_users": users_data
     }
 
+
+@router.get("/api-logs")
+def get_api_logs(
+    status_type: str = "all", 
+    limit: int = 50, 
+    x_diag_token: Optional[str] = Header(None)
+):
+    check_auth(x_diag_token)
+    
+    db = SessionLocal()
+    try:
+        from app.models.api_log import ApiLog
+        query = db.query(ApiLog)
+        
+        if status_type == "success":
+            query = query.filter(ApiLog.status_code < 400)
+        elif status_type == "error":
+            query = query.filter(ApiLog.status_code >= 400)
+            
+        logs = query.order_by(ApiLog.created_at.desc()).limit(limit).all()
+        
+        return {
+            "status": "success",
+            "logs": [
+                {
+                    "id": l.id,
+                    "method": l.method,
+                    "path": l.path,
+                    "query_params": l.query_params,
+                    "status_code": l.status_code,
+                    "ip_address": l.ip_address,
+                    "error_message": l.error_message,
+                    "response_time_ms": l.response_time_ms,
+                    "created_at": l.created_at.isoformat() if l.created_at else None
+                }
+                for l in logs
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.get("/api-logs/stats")
+def get_api_logs_stats(x_diag_token: Optional[str] = Header(None)):
+    check_auth(x_diag_token)
+    
+    db = SessionLocal()
+    try:
+        from app.models.api_log import ApiLog
+        
+        total_count = db.query(ApiLog).count()
+        success_count = db.query(ApiLog).filter(ApiLog.status_code < 400).count()
+        error_count = db.query(ApiLog).filter(ApiLog.status_code >= 400).count()
+        
+        # Average response time
+        res = db.execute(text("SELECT AVG(response_time_ms) FROM api_logs")).fetchone()
+        avg_response_time = float(res[0]) if res and res[0] is not None else 0.0
+        
+        error_rate = (error_count / total_count * 100) if total_count > 0 else 0.0
+        
+        # Get top 5 most common error endpoints/messages
+        common_errors = []
+        err_res = db.execute(text(
+            "SELECT path, error_message, COUNT(*) as cnt "
+            "FROM api_logs WHERE status_code >= 400 "
+            "GROUP BY path, error_message "
+            "ORDER BY cnt DESC LIMIT 5"
+        )).fetchall()
+        for row in err_res:
+            common_errors.append({
+                "path": row[0],
+                "error_message": row[1],
+                "count": row[2]
+            })
+            
+        return {
+            "status": "success",
+            "total_requests": total_count,
+            "success_count": success_count,
+            "error_count": error_count,
+            "error_rate": round(error_rate, 2),
+            "avg_response_time_ms": round(avg_response_time, 2),
+            "common_errors": common_errors
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @router.post("/automate-fix")
 def run_automation_fix(action: str = Body(..., embed=True), x_diag_token: Optional[str] = Header(None)):
     check_auth(x_diag_token)
@@ -199,6 +291,12 @@ def run_automation_fix(action: str = Body(..., embed=True), x_diag_token: Option
             deleted = db.query(EmailLog).filter(EmailLog.status == "failed").delete()
             db.commit()
             result_message = f"Cleared {deleted} failed email logs."
+            
+        elif action == "clear_api_logs":
+            from app.models.api_log import ApiLog
+            deleted = db.query(ApiLog).delete()
+            db.commit()
+            result_message = f"Cleared {deleted} API response logs successfully."
             
         elif action == "restart_workers":
             try:

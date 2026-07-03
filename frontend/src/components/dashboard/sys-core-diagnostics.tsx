@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Activity, Cpu, HardDrive, Database, Users, 
   RefreshCw, Play, Trash2, Terminal, ArrowLeft, 
-  CheckCircle2, XCircle, AlertCircle, Server 
+  CheckCircle2, XCircle, AlertCircle, Server,
+  Clock, Code, FileText, Eye, Filter
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL } from '../../config';
@@ -17,6 +18,14 @@ export default function SystemDiagnostics({ onClose }: DiagnosticsProps) {
   const [activeUsers, setActiveUsers] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [actionRunning, setActionRunning] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<'overview' | 'api-logs'>('overview');
+  const [apiLogs, setApiLogs] = useState<any[]>([]);
+  const [apiStats, setApiStats] = useState<any>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'error'>('all');
+  const [limitFilter, setLimitFilter] = useState<number>(50);
+  const [selectedLog, setSelectedLog] = useState<any | null>(null);
 
   const getHeaders = () => {
     const token = sessionStorage.getItem('sys_diag_token') || '';
@@ -57,11 +66,51 @@ export default function SystemDiagnostics({ onClose }: DiagnosticsProps) {
     }
   };
 
+  const fetchLogsData = async () => {
+    setLogsLoading(true);
+    try {
+      const [logsRes, statsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/admin/system-diagnostics/api-logs?status_type=${statusFilter}&limit=${limitFilter}`, { headers: getHeaders() }),
+        fetch(`${API_BASE_URL}/admin/system-diagnostics/api-logs/stats`, { headers: getHeaders() })
+      ]);
+
+      if (logsRes.status === 401 || statsRes.status === 401) {
+        toast.error('Session expired or unauthorized');
+        sessionStorage.removeItem('sys_diag_token');
+        onClose();
+        return;
+      }
+
+      const logsData = await logsRes.json();
+      const statsData = await statsRes.json();
+
+      if (logsData.status === 'success') {
+        setApiLogs(logsData.logs);
+      }
+      if (statsData.status === 'success') {
+        setApiStats(statsData);
+      }
+    } catch (error) {
+      console.error('Error fetching API logs', error);
+      toast.error('Failed to reload API request logs');
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchAllData();
     const interval = setInterval(fetchAllData, 15000); // refresh every 15s
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'api-logs') {
+      fetchLogsData();
+      const interval = setInterval(fetchLogsData, 10000); // refresh every 10s
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, statusFilter, limitFilter]);
 
   const triggerAction = async (actionKey: string, actionLabel: string) => {
     setActionRunning(actionKey);
@@ -136,7 +185,34 @@ export default function SystemDiagnostics({ onClose }: DiagnosticsProps) {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Tab Switcher */}
+      <div className="max-w-7xl mx-auto flex gap-3 mb-6 border-b border-slate-850 pb-2">
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider rounded-lg transition-all border ${
+            activeTab === 'overview'
+              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+              : 'text-slate-400 hover:text-slate-200 border-transparent'
+          }`}
+        >
+          <Server className="w-3.5 h-3.5" />
+          Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('api-logs')}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider rounded-lg transition-all border ${
+            activeTab === 'api-logs'
+              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+              : 'text-slate-400 hover:text-slate-200 border-transparent'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          API Request Logs
+        </button>
+      </div>
+
+      {activeTab === 'overview' ? (
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* COL 1: Health & Metrics */}
         <div className="lg:col-span-1 space-y-6">
@@ -267,6 +343,14 @@ export default function SystemDiagnostics({ onClose }: DiagnosticsProps) {
               >
                 <span>4. Reload Celery Workers</span>
                 <Play className={`w-3.5 h-3.5 text-slate-500 group-hover:text-emerald-400 ${actionRunning === 'restart_workers' ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                disabled={actionRunning !== null}
+                onClick={() => triggerAction('clear_api_logs', 'Purge API logs')}
+                className="w-full flex items-center justify-between text-left text-xs bg-slate-950 border border-slate-800 hover:border-emerald-500/50 p-3 rounded-lg hover:bg-slate-900 transition-all group"
+              >
+                <span>5. Purge API Request Logs</span>
+                <Trash2 className={`w-3.5 h-3.5 text-slate-500 group-hover:text-emerald-400 ${actionRunning === 'clear_api_logs' ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -410,10 +494,260 @@ export default function SystemDiagnostics({ onClose }: DiagnosticsProps) {
               </table>
             </div>
           </div>
-
         </div>
-
       </div>
+      ) : (
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* API STATS GRID */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+              <div className="text-[10px] text-slate-500 uppercase tracking-wide">Total API Requests</div>
+              <div className="text-xl font-bold text-slate-200 mt-1">{apiStats?.total_requests || 0}</div>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+              <div className="text-[10px] text-slate-500 uppercase tracking-wide">Success Rate</div>
+              <div className="text-xl font-bold text-emerald-400 mt-1">
+                {apiStats ? `${100 - apiStats.error_rate}%` : '100%'}
+              </div>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+              <div className="text-[10px] text-slate-500 uppercase tracking-wide">Average Latency</div>
+              <div className="text-xl font-bold text-blue-400 mt-1">
+                {apiStats?.avg_response_time_ms || 0} ms
+              </div>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+              <div className="text-[10px] text-slate-500 uppercase tracking-wide">Error Rate</div>
+              <div className={`text-xl font-bold mt-1 ${
+                (apiStats?.error_rate || 0) > 5 ? 'text-red-400' :
+                (apiStats?.error_rate || 0) > 1 ? 'text-amber-400' : 'text-emerald-400'
+              }`}>
+                {apiStats?.error_rate || 0}%
+              </div>
+            </div>
+          </div>
+
+          {/* COMMON ERRORS CARD */}
+          {apiStats?.common_errors && apiStats.common_errors.length > 0 && (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur-md">
+              <h3 className="text-xs font-bold text-red-400 uppercase mb-3 tracking-wider flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5" /> Top Endpoint Exceptions
+              </h3>
+              <div className="space-y-2">
+                {apiStats.common_errors.map((err: any, idx: number) => (
+                  <div key={idx} className="bg-slate-950 border border-slate-850 p-3 rounded-lg text-xs flex justify-between items-start gap-4">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-300 flex items-center gap-2">
+                        <span className="bg-red-950 text-red-400 px-1 py-0.5 rounded text-[10px] uppercase font-mono">ERROR</span>
+                        <span className="truncate">{err.path}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 font-mono break-all">{err.error_message}</p>
+                    </div>
+                    <span className="bg-slate-900 border border-slate-805 px-2.5 py-1 rounded text-slate-300 font-bold whitespace-nowrap">
+                      {err.count} hits
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* REQUEST LOGS LIST */}
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur-md">
+            <div className="flex justify-between items-center mb-5 flex-wrap gap-3">
+              <h2 className="text-sm font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+                <Activity className="w-4 h-4" /> Live HTTP Request Logs
+              </h2>
+              <div className="flex items-center gap-3 text-xs flex-wrap">
+                {/* Status Filter */}
+                <div className="flex bg-slate-950 border border-slate-850 p-1 rounded-lg">
+                  {(['all', 'success', 'error'] as const).map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => setStatusFilter(filter)}
+                      className={`px-3 py-1 rounded text-[10px] font-semibold uppercase tracking-wider transition-all ${
+                        statusFilter === filter
+                          ? 'bg-slate-800 text-slate-100 font-bold'
+                          : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      {filter}
+                    </button>
+                  ))}
+                </div>
+                {/* Limit Filter */}
+                <select
+                  value={limitFilter}
+                  onChange={(e) => setLimitFilter(Number(e.target.value))}
+                  className="bg-slate-950 border border-slate-850 text-slate-300 px-2 py-1 rounded-lg text-xs font-mono outline-none cursor-pointer hover:border-slate-700 transition-colors"
+                >
+                  <option value={50}>50 rows</option>
+                  <option value={100}>100 rows</option>
+                  <option value={200}>200 rows</option>
+                </select>
+                <button
+                  onClick={fetchLogsData}
+                  disabled={logsLoading}
+                  className="flex items-center gap-1.5 bg-slate-950 border border-slate-850 px-3 py-1 rounded-lg hover:bg-slate-900 transition-colors"
+                >
+                  <RefreshCw className={`w-3 h-3 ${logsLoading ? 'animate-spin' : ''}`} />
+                  Reload
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                    <th className="py-2.5">Status</th>
+                    <th className="py-2.5">Method</th>
+                    <th className="py-2.5">Path</th>
+                    <th className="py-2.5">IP</th>
+                    <th className="py-2.5">Latency</th>
+                    <th className="py-2.5 text-right">Time</th>
+                    <th className="py-2.5 text-center">Inspect</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-850">
+                  {apiLogs.map((log) => {
+                    const statusClass = 
+                      log.status_code < 300 ? 'bg-green-950/80 border border-green-800/50 text-green-400' :
+                      log.status_code < 400 ? 'bg-blue-950/80 border border-blue-800/50 text-blue-400' :
+                      log.status_code < 500 ? 'bg-amber-950/80 border border-amber-800/50 text-amber-400' :
+                      'bg-red-950/80 border border-red-800/50 text-red-400';
+                      
+                    const methodClass =
+                      log.method === 'GET' ? 'text-blue-400' :
+                      log.method === 'POST' ? 'text-emerald-400' :
+                      log.method === 'PUT' ? 'text-amber-500' :
+                      log.method === 'DELETE' ? 'text-red-400' : 'text-slate-300';
+
+                    return (
+                      <tr key={log.id} className="hover:bg-slate-900/35 transition-colors">
+                        <td className="py-2.5">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${statusClass}`}>
+                            {log.status_code}
+                          </span>
+                        </td>
+                        <td className={`py-2.5 font-bold text-[11px] ${methodClass}`}>{log.method}</td>
+                        <td className="py-2.5 text-slate-200 text-[11px] truncate max-w-[200px]" title={log.path}>
+                          {log.path}
+                        </td>
+                        <td className="py-2.5 text-slate-500 text-[10px]">{log.ip_address || '127.0.0.1'}</td>
+                        <td className="py-2.5 text-slate-300 font-semibold">{log.response_time_ms ? `${log.response_time_ms.toFixed(1)} ms` : '0 ms'}</td>
+                        <td className="py-2.5 text-right text-slate-500 text-[10px]">
+                          {log.created_at ? new Date(log.created_at).toLocaleString() : 'N/A'}
+                        </td>
+                        <td className="py-2.5 text-center">
+                          <button
+                            onClick={() => setSelectedLog(log)}
+                            className="p-1 text-slate-500 hover:text-emerald-400 hover:bg-slate-800 rounded transition-all"
+                            title="Inspect request log"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {apiLogs.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-6 text-center text-slate-655 font-mono">
+                        {logsLoading ? 'Loading response records...' : 'No API logs found.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DETAIL INSPECTOR MODAL */}
+      {selectedLog && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl p-6 font-mono max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-4">
+              <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-wider">
+                API Request Log Inspector
+              </h3>
+              <button
+                onClick={() => setSelectedLog(null)}
+                className="text-slate-400 hover:text-slate-200"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="space-y-4 text-xs text-slate-300">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-850">
+                  <span className="text-[10px] text-slate-500 block uppercase">Request Method</span>
+                  <span className="font-bold text-slate-200 text-sm">{selectedLog.method}</span>
+                </div>
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-850">
+                  <span className="text-[10px] text-slate-500 block uppercase">Status Code</span>
+                  <span className={`font-bold text-sm ${selectedLog.status_code >= 400 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {selectedLog.status_code}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-850">
+                <span className="text-[10px] text-slate-500 block uppercase">Endpoint Path</span>
+                <span className="font-bold text-slate-200 text-sm select-all">{selectedLog.path}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-850">
+                  <span className="text-[10px] text-slate-500 block uppercase">Client IP Address</span>
+                  <span className="text-slate-300">{selectedLog.ip_address || '127.0.0.1'}</span>
+                </div>
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-850">
+                  <span className="text-[10px] text-slate-500 block uppercase">Response Latency</span>
+                  <span className="text-slate-300 font-bold">{selectedLog.response_time_ms ? `${selectedLog.response_time_ms.toFixed(2)} ms` : '0 ms'}</span>
+                </div>
+              </div>
+
+              {selectedLog.query_params && (
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-850">
+                  <span className="text-[10px] text-slate-500 block uppercase">Query Parameters</span>
+                  <span className="text-blue-400 select-all font-mono break-all">{selectedLog.query_params}</span>
+                </div>
+              )}
+
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-850">
+                <span className="text-[10px] text-slate-500 block uppercase">Logged Timestamp</span>
+                <span className="text-slate-300">{new Date(selectedLog.created_at).toLocaleString()}</span>
+              </div>
+
+              <div className="bg-slate-950 p-4 rounded-lg border border-slate-850 space-y-2">
+                <span className="text-[10px] text-slate-500 block uppercase">Detailed Status Payload</span>
+                {selectedLog.error_message ? (
+                  <div className="bg-red-950/20 border border-red-900/50 p-3 rounded text-red-400 font-mono break-all whitespace-pre-wrap select-all">
+                    {selectedLog.error_message}
+                  </div>
+                ) : (
+                  <div className="text-emerald-400 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" /> 200 OK — Successful request execution with no exceptions.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setSelectedLog(null)}
+                className="bg-slate-800 border border-slate-700 hover:bg-slate-700 px-4 py-2 rounded-lg text-xs"
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

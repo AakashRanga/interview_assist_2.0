@@ -12,11 +12,12 @@ from app.routes.notification_routes import router as notification_router
 from app.routes.feedback_routes import router as feedback_router
 from app.routes.super_admin_routes import router as super_admin_router
 
-from app.database import engine, Base
+from app.database import engine, Base, SessionLocal
 from app.models.panel_group import PanelGroup
 from app.models.panel_feedback import PanelFeedback
 from app.models.email_log import EmailLog
 from app.models.candidate_history import CandidateHistory
+from app.models.api_log import ApiLog
 
 Base.metadata.create_all(bind=engine)
 
@@ -307,6 +308,90 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+import time
+import json
+from fastapi import Request
+from starlette.responses import Response
+
+@app.middleware("http")
+async def log_api_requests(request: Request, call_next):
+    path = request.url.path
+    # Exclude static assets, health check, and system diagnostic endpoints to prevent clutter/recursion
+    if path.startswith("/uploads") or path == "/health" or path == "/" or "/system-diagnostics/metrics" in path or "/system-diagnostics/api-logs" in path:
+        return await call_next(request)
+
+    start_time = time.time()
+    error_msg = None
+    response = None
+    
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    except Exception as e:
+        status_code = 505
+        error_msg = str(e)
+        raise e
+    finally:
+        process_time = (time.time() - start_time) * 1000
+        
+        if response and status_code >= 400 and not error_msg:
+            try:
+                response_body = b""
+                async for chunk in response.body_iterator:
+                    response_body += chunk
+                
+                response = Response(
+                    content=response_body,
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                    media_type=response.media_type
+                )
+                
+                body_str = response_body.decode("utf-8", errors="ignore")
+                try:
+                    parsed = json.loads(body_str)
+                    if isinstance(parsed, dict) and "detail" in parsed:
+                        detail = parsed["detail"]
+                        if isinstance(detail, str):
+                            error_msg = detail
+                        elif isinstance(detail, list):
+                            error_msg = "; ".join([f"{'.'.join(str(l) for l in err.get('loc', []))}: {err.get('msg', '')}" for err in detail])
+                        elif isinstance(detail, dict):
+                            error_msg = detail.get("message") or str(detail)
+                    else:
+                        error_msg = body_str[:500]
+                except Exception:
+                    error_msg = body_str[:500]
+            except Exception as read_err:
+                error_msg = f"Could not read response: {str(read_err)}"
+                
+        db = SessionLocal()
+        try:
+            query_params = str(request.query_params) if request.query_params else None
+            if query_params and len(query_params) > 500:
+                query_params = query_params[:497] + "..."
+                
+            client_ip = request.client.host if request.client else None
+            
+            api_log = ApiLog(
+                method=request.method,
+                path=path,
+                query_params=query_params,
+                status_code=status_code,
+                ip_address=client_ip,
+                error_message=error_msg,
+                response_time_ms=process_time
+            )
+            db.add(api_log)
+            db.commit()
+        except Exception as db_err:
+            print(f"Failed to save API log: {db_err}")
+            db.rollback()
+        finally:
+            db.close()
+            
+    return response
 
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
