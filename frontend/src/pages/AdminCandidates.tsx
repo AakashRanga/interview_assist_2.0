@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
+import { ClockTimePicker } from '../components/ui/ClockTimePicker';
 import { CandidateDetailModal } from '../components/dashboard/CandidateDetailModal';
 import { API_BASE_URL } from '../config';
 import {
@@ -1006,17 +1007,15 @@ export function AdminCandidates() {
             onChange={(e) => setNewDate(e.target.value)}
           />
           <div className="grid grid-cols-2 gap-3">
-            <Input
-              type="time"
+            <ClockTimePicker
               label="Start Time"
               value={newStartTime}
-              onChange={(e) => setNewStartTime(e.target.value)}
+              onChange={(val) => setNewStartTime(val)}
             />
-            <Input
-              type="time"
+            <ClockTimePicker
               label="End Time"
               value={newEndTime}
-              onChange={(e) => setNewEndTime(e.target.value)}
+              onChange={(val) => setNewEndTime(val)}
             />
           </div>
 
@@ -1208,17 +1207,15 @@ export function AdminCandidates() {
             onChange={(e) => setSchedDate(e.target.value)}
           />
           <div className="grid grid-cols-2 gap-3">
-            <Input
-              type="time"
+            <ClockTimePicker
               label="Start Time"
               value={schedStartTime}
-              onChange={(e) => setSchedStartTime(e.target.value)}
+              onChange={(val) => setSchedStartTime(val)}
             />
-            <Input
-              type="time"
+            <ClockTimePicker
               label="End Time"
               value={schedEndTime}
-              onChange={(e) => setSchedEndTime(e.target.value)}
+              onChange={(val) => setSchedEndTime(val)}
             />
           </div>
 

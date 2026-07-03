@@ -1,21 +1,43 @@
 import React from 'react';
+
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
 }
-export function Input({ label, error, className = '', ...props }: InputProps) {
+
+export function Input({ label, error, className = '', onClick, ...props }: InputProps) {
+  const handleClick = (e: React.MouseEvent<HTMLInputElement>) => {
+    if (props.type === 'time' || props.type === 'date') {
+      try {
+        if ('showPicker' in e.currentTarget) {
+          e.currentTarget.showPicker();
+        }
+      } catch (err) {
+        console.error('Failed to show picker:', err);
+      }
+    }
+    if (onClick) {
+      onClick(e);
+    }
+  };
+
+  const isPickerType = props.type === 'time' || props.type === 'date';
+
   return (
     <div className="w-full">
-      {label &&
-      <label className="block text-[10px] font-medium text-secondary/70 mb-1.5 uppercase tracking-wider">
+      {label && (
+        <label className="block text-[10px] font-medium text-secondary/70 mb-1.5 uppercase tracking-wider">
           {label}
         </label>
-      }
+      )}
       <input
-        className={`w-full px-3.5 py-2.5 bg-white/70 backdrop-blur-xl border border-white/60 rounded-xl text-xs text-secondary placeholder:text-neutral/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all ${className}`}
-        {...props} />
-      
+        className={`w-full px-3.5 py-2.5 bg-white/70 backdrop-blur-xl border border-white/60 rounded-xl text-xs text-secondary placeholder:text-neutral/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all ${
+          isPickerType ? 'cursor-pointer' : ''
+        } ${className}`}
+        onClick={handleClick}
+        {...props}
+      />
       {error && <p className="mt-1 text-[10px] text-red-500">{error}</p>}
-    </div>);
-
+    </div>
+  );
 }

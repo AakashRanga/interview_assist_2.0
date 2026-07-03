@@ -122,7 +122,7 @@ html {
 
 input[type="date"],
 input[type="time"] {
-  color-scheme: white !important;
+  color-scheme: light !important;
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator,
