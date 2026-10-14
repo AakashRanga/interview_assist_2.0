@@ -68,7 +68,7 @@ Ensure you have the following installed locally:
    * `DB_NAME=interview_assist`
 6. Start the FastAPI backend server:
    ```powershell
-   uvicorn app.main:app --reload --port 8000
+   uvicorn app.main:app --host 0.0.0.0 --reload --port 8000
    ```
    *Verify it's running by visiting `http://localhost:8000/health` in your browser.*
 
@@ -169,6 +169,8 @@ n8n acts as the workflow orchestrator. It receives requests from the Celery task
    # Run from the backend directory
    python setup_n8n_workflow.py
    ```
+
+
 
 ---
 
